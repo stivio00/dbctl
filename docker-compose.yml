@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dbctl-pg
+    environment:
+      POSTGRES_USER: app_admin
+      POSTGRES_PASSWORD: pwd_postgres
+      POSTGRES_DB: app
+    ports: ["5433:5432"]   # 5433 on host to avoid clashing with a local pg
+    volumes:
+      - ./seed/postgres.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_admin -d app"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8
+    container_name: dbctl-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: pwd_mysql_root
+      MYSQL_DATABASE: app
+      MYSQL_USER: app_admin
+      MYSQL_PASSWORD: pwd_mysql
+    ports: ["3307:3306"]
+    volumes:
+      - ./seed/mysql.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uapp_admin", "-ppwd_mysql"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # SQL Server 2022 - works on linux via mcr.microsoft.com images. Needs
+  # `MSSQL_SA_PASSWORD` and accepts longer passwords only.
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: dbctl-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "PwdSqlServer2026!"
+    ports: ["1434:1433"]
+    volumes:
+      - ./seed/mssql.sql:/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'PwdSqlServer2026!' -C -Q 'SELECT 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot service that applies seed/mssql.sql once the server is healthy.
+  # The official mssql image runs as the non-root `mssql` user, so any custom
+  # entrypoint that tries `mssql-conf setup` fails. Boot the server normally,
+  # then have a sibling container bolt the seed data on.
+  mssql-seed:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: dbctl-mssql-seed
+    depends_on:
+      mssql:
+        condition: service_healthy
+    volumes:
+      - ./seed/mssql.sql:/seed.sql:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P 'PwdSqlServer2026!' -C -i /seed.sql && exit 0
+          sleep 2
+        done
+        echo "mssql seed failed" >&2
+        exit 1
