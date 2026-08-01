@@ -71,7 +71,7 @@ broken, what is left".
 
 ```bash
 cd ~/Projects/dbctl
-uv sync --extra dev --extra postgres --extra mysql
+uv sync --extra dev
 uv run ruff check dbctl tests        # → "All checks passed!"
 uv run pytest tests/                  # → 15 passed in ~0.4s
 uv run dbctl --help                   # → root help with dynamic commands

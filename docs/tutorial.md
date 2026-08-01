@@ -32,12 +32,12 @@ You need [uv](https://docs.astral.sh/uv/) and docker.
 
 ```bash
 ▶ cd ~/Projects/dbctl
-▶ uv sync --extra dev --extra postgres --extra mysql
+▶ uv sync --extra dev
 ```
 
-`uv sync` creates a `.venv/` with everything pinned in `uv.lock`. The two
-extras pull in the `psycopg` (postgres) and `pymysql` (mysql) drivers. (SQL
-Server needs `pyodbc` + an ODBC driver on the host — we'll come back to that.)
+`uv sync` creates a `.venv/` with everything pinned in `uv.lock`. The DB
+drivers (`psycopg`, `pymysql`, `pyodbc`) ship as regular dependencies. (SQL
+Server additionally needs an ODBC driver on the host — we'll come back to that.)
 
 Run `dbctl` once to confirm it's alive:
 

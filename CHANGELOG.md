@@ -5,6 +5,19 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-08-01
+
+### Changed
+
+- **DB drivers are now regular dependencies.** `psycopg[binary]`,
+  `pymysql`, and `pyodbc` moved from optional `postgres` / `mysql` /
+  `mssql` extras into the core `dependencies` list, so a plain
+  `pip install dbctl` (or `uv tool install dbctl`) installs every
+  dialect out of the box. The three extras are removed. The `dev`
+  extra (pytest / ruff / mypy) is unchanged. Docs, tutorial, and the
+  `_check_driver_available` install hint were updated to drop the
+  `dbctl[<pkg]` extra syntax.
+
 ## [0.4.0] — 2026-08-01
 
 ### Added

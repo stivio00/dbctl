@@ -58,7 +58,7 @@ linked from the README. No code touched in that last step.
 
 ```bash
 cd ~/Projects/dbctl
-uv sync --extra dev --extra postgres --extra mysql
+uv sync --extra dev
 uv run ruff check dbctl tests        # → All checks passed!
 uv run pytest tests/                  # → 26 passed
 uv run dbctl --help

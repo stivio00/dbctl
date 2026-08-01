@@ -59,13 +59,12 @@ config file, instead of buried in shell history.
 `uv` is the recommended workflow:
 
 ```bash
-# Install dbctl as a tool with one or more dialect drivers
-uv tool install ./dbctl --with psycopg --with pymysql
-# (add `--with pyodbc` if you need SQL Server)
+# Install dbctl as a tool (all dialect drivers ship as dependencies)
+uv tool install ./dbctl
 
 # Or hack locally:
 cd dbctl
-uv sync --extra dev --extra postgres --extra mysql
+uv sync --extra dev
 uv pip install -e .
 uv run dbctl --help
 ```
@@ -264,7 +263,7 @@ dbctl/
 ## Development
 
 ```bash
-uv sync --extra dev --extra postgres --extra mysql
+uv sync --extra dev
 uv run ruff check dbctl tests   # lint
 uv run pytest tests/             # 15 unit tests
 uv run mypy dbctl                 # type-check

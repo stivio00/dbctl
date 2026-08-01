@@ -168,11 +168,14 @@ toml = [
 
 [[package]]
 name = "dbctl"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
+    { name = "pymysql" },
+    { name = "pyodbc" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "sqlalchemy" },
@@ -185,24 +188,15 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
-mssql = [
-    { name = "pyodbc" },
-]
-mysql = [
-    { name = "pymysql" },
-]
-postgres = [
-    { name = "psycopg", extra = ["binary"] },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2" },
-    { name = "pymysql", marker = "extra == 'mysql'", specifier = ">=1.1" },
-    { name = "pyodbc", marker = "extra == 'mssql'", specifier = ">=5" },
+    { name = "pymysql", specifier = ">=1.1" },
+    { name = "pyodbc", specifier = ">=5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "pyyaml", specifier = ">=6" },
@@ -210,7 +204,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sqlalchemy", specifier = ">=2" },
 ]
-provides-extras = ["postgres", "mysql", "mssql", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "greenlet"

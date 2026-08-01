@@ -97,7 +97,7 @@ def _check_driver_available(driver: str) -> None:
     except ModuleNotFoundError as e:
         raise DBError(
             f"driver {driver!r} requires the missing python package {pkg!r}. "
-            f"install it with: pip install {pkg}  (or: uv pip install 'dbctl[{pkg}]')"
+            f"install it with: pip install {pkg}  (or: uv pip install {pkg})"
         ) from e
 
 
