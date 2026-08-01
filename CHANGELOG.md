@@ -5,6 +5,23 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-08-01
+
+### Fixed
+
+- **CI workflow** referenced the removed `postgres` / `mysql` extras in
+  the `test` job's `uv sync` line, causing every matrix run to fail with
+  `error: Extra 'postgres' is not defined`. Synced to `--extra dev`
+  only (DB drivers are now core dependencies).
+- **CI workflow** created `reports/` only implicitly via pytest output;
+  on a hard test failure before the first XML write the
+  `upload-artifact` step errored with "No files were found with the
+  provided path: reports/". The directory is now created up-front, so
+  the always-on artifact upload never 404s.
+- Bumped `actions/setup-uv` from `v3` (Node 20, deprecated on GH runners)
+  to `v4`, and standardised the lint / build jobs' setup Python on 3.13
+  to match the matrix's newest supported version.
+
 ## [0.5.0] — 2026-08-01
 
 ### Changed

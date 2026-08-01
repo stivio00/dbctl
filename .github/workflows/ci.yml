@@ -29,12 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.13
       - name: Install dev deps
         # --frozen keeps CI honest: if uv.lock is out of date the job
         # fails rather than silently re-resolving.
@@ -73,20 +73,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install deps
-        # mssql extra needs ODBC at the system level (libodbc.so), which
-        # isn't on these runners by default; tests don't need it.
-        run: uv sync --frozen --extra dev --extra postgres --extra mysql
+        # DB drivers ship as core dependencies; the mssql driver needs
+        # ODBC at the system level (libodbc.so), which isn't on these
+        # runners by default, but tests don't need it.
+        run: uv sync --frozen --extra dev
       - name: Run pytest with coverage
         # --junitxml so failed runs still produce a report artifact;
         # --cov + --cov-report=xml for coverage upload.
         run: |
+          mkdir -p reports
           uv run pytest tests/ \
             --junitxml=reports/junit-${{ matrix.os }}-${{ matrix.python-version }}.xml \
             --cov=dbctl \
@@ -121,12 +123,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.13
       - name: Build distributions
         run: uv build
       - name: Verify metadata
