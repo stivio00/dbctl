@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 
+from dbctl.connections import ConnectionsFileError
 from dbctl.connections import load as load_connections
 from dbctl.operations import load as load_operations
 
@@ -36,7 +37,13 @@ def registries(ctx: click.Context) -> tuple[dict, dict]:
     prof = ctx.obj.get("profile") if ctx.obj else None
     try:
         conns = load_connections(profile=prof)
-    except Exception as e:  # noqa: BLE001 - show user-friendly error once
+    except ConnectionsFileError as e:
+        # Surface per-connection errors concisely, but still serve the
+        # connections that /did/ validate so a single mis-configured
+        # reference template doesn't take down the whole CLI.
+        err_console.print(f"[red]connections.yaml:[/red] {e}")
+        conns = e.valid
+    except Exception as e:  # noqa: BLE001 - YAML parse error, IO, etc.
         err_console.print(f"[red]connections.yaml:[/red] {e}")
         conns = {}
     try:

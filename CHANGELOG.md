@@ -5,6 +5,38 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-08-01
+
+### Fixed
+
+- **connections.yaml loader** validated the whole file with a single
+  pydantic `ConnectionsFile.model_validate` call, so one mis-configured
+  connection (e.g. a reference template with all password sources
+  commented out) rejected the entire registry and surfaced a multi-screen
+  `ValidationError` dump. The loader now validates each connection
+  individually: good connections load and serve the CLI as before, bad
+  ones are reported concisely via the new `ConnectionsFileError` (one
+  short sentence per offending connection, stripped of pydantic's
+  `Value error, ` wrapper). `runtime.registries` catches it and still
+  returns the valid subset so the dashboard and `--help` keep working.
+- **`dbctl --version`** reported a hardcoded `0.1.0` instead of the
+  installed package version (PyPI was at `0.5.1`). `__version__` now
+  resolves dynamically via `importlib.metadata.version("dbctl")`,
+  falling back to `0.0.0+unknown` for a source checkout without install.
+- **Driver load errors** for native shared-library failures (e.g.
+  `pyodbc` installed but `libodbc.so.2` missing at the OS level) escaped
+  as raw Python tracebacks. `_check_driver_available` now catches
+  `ImportError` too and raises a concise `DBError` with an actionable
+  install hint (apt/dnf/brew commands) for the common `libodbc` and
+  `libpq` cases.
+
+### Changed
+
+- `.dbctl/connections.yaml` reference templates (`pg-ssm`, `pg-k8s`,
+  `pg-ssh`) now ship with `password: "<set-me>"` placeholders uncommented,
+  so the sample registry validates cleanly out of the box and the loader
+  no longer warns about them on every CLI invocation.
+
 ## [0.5.1] — 2026-08-01
 
 ### Fixed

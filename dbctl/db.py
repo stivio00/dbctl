@@ -79,8 +79,9 @@ def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Eng
 
 def _check_driver_available(driver: str) -> None:
     """Fail fast with a helpful hint when the dialect's python package is
-    missing. SQLAlchemy imports the driver lazily at connect time; we trigger
-    it eagerly so the user sees a clean message instead of a wrapped error."""
+    missing or its native shared-library dependency is absent. SQLAlchemy
+    imports the driver lazily at connect time; we trigger it eagerly so
+    the user sees a clean message instead of a wrapped traceback."""
     import importlib
 
     module_map = {
@@ -99,6 +100,41 @@ def _check_driver_available(driver: str) -> None:
             f"driver {driver!r} requires the missing python package {pkg!r}. "
             f"install it with: pip install {pkg}  (or: uv pip install {pkg})"
         ) from e
+    except ImportError as e:
+        # Python package is installed but it can't load a native shared
+        # library — typical for pyodbc without unixODBC installed at the
+        # OS level, or psycopg without libpq. The missing .so filename is
+        # in the error message text (e.g. "libodbc.so.2: cannot open..."),
+        # not in e.name (which holds the python module being imported).
+        msg = str(e)
+        lib = msg.split(":", 1)[0].strip()
+        if not _looks_like_library(lib):
+            lib = ""
+        hint = _native_lib_hint(driver, lib) or msg
+        raise DBError(
+            f"driver {driver!r} (python package {pkg!r}) failed to load a native dependency: {hint}"
+        ) from e
+
+
+def _looks_like_library(name: str) -> bool:
+    return bool(name) and ("lib" in name or ".so" in name)
+
+
+def _native_lib_hint(driver: str, library: str) -> str:
+    """Translate the most common native-library failures into install hints."""
+    if "libodbc" in (library or ""):
+        return (
+            "missing native ODBC library libodbc.so; install unixODBC at the "
+            "OS level (Debian/Ubuntu: `sudo apt install unixodbc`, "
+            "RHEL/Fedora: `sudo dnf install unixODBC`, macOS: `brew install unixodbc`)."
+        )
+    if "libpq" in (library or "") or "psycopg" in (library or ""):
+        return (
+            "missing native libpq; install PostgreSQL client libs "
+            "(Debian/Ubuntu: `sudo apt install libpq5`, "
+            "RHEL/Fedora: `sudo dnf install libpq`, macOS: `brew install libpq`)."
+        )
+    return ""
 
 
 def healthcheck(engine: Engine, query: str, timeout: float) -> tuple[bool, float, str]:
