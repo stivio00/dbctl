@@ -5,6 +5,21 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-08-01
+
+### Added
+
+- **Plaintext `password` field on connections** as a third credential
+  source, alongside `password_env` and `prompt`. The three are mutually
+  exclusive. Intended for local-dev convenience against the docker-compose
+  fleet; the `password_env` / `prompt` paths remain the recommended
+  options for any non-trivial environment. The sample `.dbctl/connections.yaml`
+  now ships with `password:` set for the three dev connections and the
+  `password_env:` line kept as a commented reference. Reference tunnel
+  templates (ssm / k8s / ssh) carry commented `password:` / `password_env:`
+  / `prompt:` placeholders instead. `dbctl init` now offers a `plain`
+  password source option.
+
 ## [0.3.0] — 2026-08-01
 
 ### Added

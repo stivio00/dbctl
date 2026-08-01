@@ -11,7 +11,8 @@ connections:
     driver: postgresql+psycopg
     database: app
     username: app_admin
-    password_env: DBCTL_PG_PASSWORD
+    password: pwd_postgres
+    # password_env: DBCTL_PG_PASSWORD  # alt: read the password from this env var
     direct: { host: 127.0.0.1, port: 5433 }
     healthcheck: { query: "SELECT 1", timeout_seconds: 5 }
     info:
@@ -34,7 +35,8 @@ connections:
     driver: mysql+pymysql
     database: app
     username: app_admin
-    password_env: DBCTL_MY_PASSWORD
+    password: pwd_mysql
+    # password_env: DBCTL_MY_PASSWORD  # alt: read the password from this env var
     direct: { host: 127.0.0.1, port: 3307 }
     healthcheck: { query: "SELECT 1" }
     info:
@@ -51,7 +53,8 @@ connections:
     driver: mssql+pyodbc
     database: app
     username: sa
-    password_env: DBCTL_MS_PASSWORD
+    password: "PwdSqlServer2026!"
+    # password_env: DBCTL_MS_PASSWORD  # alt: read the password from this env var
     # SQL Server needs a configured ODBC driver on the host. Use pyodbc's
     # connection string by overriding connect_args in your own config:
     #   connect_args: { driver: "ODBC Driver 18 for SQL Server", TrustServerCertificate: "yes" }
@@ -82,7 +85,9 @@ connections:
     driver: postgresql+psycopg
     database: app
     username: app_admin
-    password_env: DBCTL_PG_SSM_PASSWORD
+    # password: "<set-me>"                    # alt: plaintext (local dev only)
+    # password_env: DBCTL_PG_SSM_PASSWORD     # alt: read from this env var
+    # prompt: true                            # alt: prompt each run
     ssm:
       region: eu-west-1
       profile: prod                       # AWS SSO profile; tokens in ~/.aws/cache
@@ -128,7 +133,9 @@ connections:
     driver: postgresql+psycopg
     database: app
     username: app_admin
-    password_env: DBCTL_PG_K8S_PASSWORD
+    # password: "<set-me>"                    # alt: plaintext (local dev only)
+    # password_env: DBCTL_PG_K8S_PASSWORD     # alt: read from this env var
+    # prompt: true                            # alt: prompt each run
     k8s:
       context: prod-cluster             # --context; required
       namespace: data                   # optional; blank = kubeconfig default
@@ -160,7 +167,9 @@ connections:
     driver: postgresql+psycopg
     database: app
     username: app_admin
-    password_env: DBCTL_PG_SSH_PASSWORD
+    # password: "<set-me>"                    # alt: plaintext (local dev only)
+    # password_env: DBCTL_PG_SSH_PASSWORD     # alt: read from this env var
+    # prompt: true                            # alt: prompt each run
     ssh:
       host: bastion.example.com           # reachable from your workstation
       user: ec2-user

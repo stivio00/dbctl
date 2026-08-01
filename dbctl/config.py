@@ -176,7 +176,8 @@ class Connection(BaseModel):
     driver: str  # SQLAlchemy URL scheme, e.g. postgresql+psycopg
     database: str
     username: str
-    password_env: str | None = None
+    password: str | None = None  # plaintext password (for local dev only)
+    password_env: str | None = None  # name of env var holding the DB password
     prompt: bool = False  # prompt for password interactively each run
 
     ssm: SsmTunnel | None = None
@@ -203,10 +204,11 @@ class Connection(BaseModel):
             case TunnelType.direct:
                 if self.direct is None:
                     raise ValueError("'direct' block required when type=direct")
-        if self.password_env and self.prompt:
-            raise ValueError("'password_env' and 'prompt' are exclusive")
-        if not (self.password_env or self.prompt):
-            raise ValueError("set 'password_env' or 'prompt: true' for each connection")
+        sources = [bool(self.password), bool(self.password_env), self.prompt]
+        if sum(sources) > 1:
+            raise ValueError("'password', 'password_env' and 'prompt' are mutually exclusive")
+        if not any(sources):
+            raise ValueError("set 'password', 'password_env' or 'prompt: true' for each connection")
         return self
 
 

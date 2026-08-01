@@ -32,6 +32,8 @@ class DBError(RuntimeError):
 
 
 def resolve_password(conn: Connection) -> str:
+    if conn.password is not None:
+        return conn.password
     if conn.password_env:
         val = os.environ.get(conn.password_env)
         if not val:

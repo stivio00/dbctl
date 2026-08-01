@@ -48,9 +48,10 @@ def run_wizard(*, profile: str | None) -> None:
 
     cred = click.prompt(
         "password source",
-        type=click.Choice(["env", "prompt"]),
+        type=click.Choice(["plain", "env", "prompt"]),
         default="prompt",
     )
+    password = click.prompt("password", hide_input=True, default="") if cred == "plain" else None
     password_env = f"DBCTL_{name.upper()}_PASSWORD" if cred == "env" else None
     prompt = cred == "prompt"
 
@@ -77,6 +78,7 @@ def run_wizard(*, profile: str | None) -> None:
         driver=driver,
         database=database,
         username=username,
+        password=password,
         password_env=password_env,
         prompt=prompt,
         ssm=ssm,
