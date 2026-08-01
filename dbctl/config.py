@@ -90,7 +90,7 @@ class SsmTunnel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     region: str
     profile: str | None = None
-    bastion_instance_id: str | None = None    # either this OR bastion_tags
+    bastion_instance_id: str | None = None  # either this OR bastion_tags
     bastion_tags: dict[str, str] | None = None  # alt: resolved via ec2:DescribeInstances
     remote_host: str
     remote_port: int = 5432
@@ -209,7 +209,7 @@ class Operation(BaseModel):
     scope: OpScope = OpScope.single
     namespace: str | None = None
     mode: OpMode = OpMode.execute
-    confirm: bool = True    # prompt before commit for execute/upsert
+    confirm: bool = True  # prompt before commit for execute/upsert
     output: OutputFormat = OutputFormat.table
     tags: list[str] = Field(default_factory=list)
     roles: list[str] = Field(default_factory=list)  # for multi: ["src","trg"]
@@ -226,9 +226,7 @@ class Operation(BaseModel):
             if self.queries is None:
                 raise ValueError("multi operations must declare queries per role")
             if not set(self.queries).issubset(self.roles):
-                raise ValueError(
-                    f"queries roles {set(self.queries)} not subset of roles {self.roles}"
-                )
+                raise ValueError(f"queries roles {set(self.queries)} not subset of roles {self.roles}")
         else:
             if self.sql is None and self.mode is not OpMode.upsert:
                 raise ValueError("single operations must declare 'sql' (upsert builds SQL from file)")

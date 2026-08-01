@@ -80,21 +80,25 @@ class LazyConnGroup(click.Group):
 # --------------------------------------------------------------------------- #
 def _static_conn_cmd(name: str) -> click.Command:
     if name == "health":
+
         @click.command(name="health", help="Run the configured healthcheck query.")
         def health() -> None:
             ctx = click.get_current_context()
             conn_name = ctx.parent.info_name
             with opened_conn(ctx, conn_name) as (canonical, conn, stub):
                 from dbctl.db import healthcheck as hc
+
                 ok, ms, msg = hc(stub.engine, conn.healthcheck.query, conn.healthcheck.timeout_seconds)
                 color = "green" if ok else "red"
                 console.print(f"[{color}]{'OK' if ok else 'FAIL'}[/{color}] {canonical} ({ms:.1f}ms)")
                 if not ok:
                     console.print(f"  [dim]{msg}[/dim]")
                 raise SystemExit(0 if ok else 5)
+
         return health
 
     if name == "info":
+
         @click.command(name="info", help="Run a named info query (or all).")
         @click.argument("qname", required=False)
         def info(qname: str) -> None:
@@ -104,6 +108,7 @@ def _static_conn_cmd(name: str) -> click.Command:
                 from sqlalchemy import text
 
                 from dbctl.reports import render_rows
+
                 if not conn.info:
                     console.print("[dim]no info queries defined[/dim]")
                     return
@@ -115,30 +120,38 @@ def _static_conn_cmd(name: str) -> click.Command:
                     for q in selected:
                         rows = [dict(r) for r in c.execute(text(q.query)).mappings()]
                         render_rows(rows, "table", title=f"info: {q.name} ({canonical})")
+
         return info
 
     if name == "history":
+
         @click.command(name="history", help="Show recent operations run against this connection.")
         def history() -> None:
             ctx = click.get_current_context()
             conn_name = ctx.parent.info_name
             from dbctl.connections import resolve
+
             conns, _ = registries(ctx)
             canonical, _ = resolve(conn_name, conns)
             from dbctl.audit import read
+
             rows = [e for e in read(ctx.obj.get("profile")) if e.get("connection") == canonical]
             render_history_table(rows[-30:])
+
         return history
 
     if name == "again":
+
         @click.command(name="again", help="Re-run the last operation on this connection.")
         def again() -> None:
             ctx = click.get_current_context()
             conn_name = ctx.parent.info_name
             from dbctl.connections import resolve
+
             conns, ops = registries(ctx)
             canonical, conn = resolve(conn_name, conns)
             from dbctl.audit import last_for
+
             last = last_for(ctx.obj.get("profile"), canonical)
             if not last:
                 err_console.print(f"[red]no previous operation found for {canonical}[/red]")
@@ -148,6 +161,7 @@ def _static_conn_cmd(name: str) -> click.Command:
             console.print(f"[dim]re-running:[/dim] {canonical} {op_name} {params}")
             op = resolve_op(op_name, ops)
             _execute_single(ctx, canonical, conn, op_name, op, params, apply=True, yes=True)
+
         return again
 
     return None
@@ -185,9 +199,7 @@ def _make_single_op_command(conn_name: str, op_name: str, op: Operation) -> clic
     click_params.append(
         click.Option(["--apply"], is_flag=True, help="Commit (default dry-runs when confirm).")
     )
-    click_params.append(
-        click.Option(["--yes", "-y"], is_flag=True, help="Skip confirmation prompt.")
-    )
+    click_params.append(click.Option(["--yes", "-y"], is_flag=True, help="Skip confirmation prompt."))
     click_params.append(
         click.Option(["--show-sql"], is_flag=True, help="Print resolved SQL before executing.")
     )
@@ -207,13 +219,22 @@ def _make_single_op_command(conn_name: str, op_name: str, op: Operation) -> clic
         show_sql = bool(kwargs.pop("show_sql", False))
         out_fmt = kwargs.pop("output", None)
         from dbctl.connections import resolve
+
         conns, _ = registries(ctx)
         canonical, conn = resolve(conn_name, conns)
         kwargs = _prompt_missing(op, kwargs)
         fmt = out_fmt or op.output.value
         _execute_single(
-            ctx, canonical, conn, op_name, op, kwargs,
-            apply=apply_flag, yes=yes, show_sql=show_sql, fmt=fmt,
+            ctx,
+            canonical,
+            conn,
+            op_name,
+            op,
+            kwargs,
+            apply=apply_flag,
+            yes=yes,
+            show_sql=show_sql,
+            fmt=fmt,
         )
 
     sig = " ".join(p.name.upper() for p in pos_params)
@@ -387,9 +408,7 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
     # then the operation's own positional params.
     click_params: list[click.Parameter] = []
     for r in op.roles:
-        click_params.append(
-            click.Argument([r.upper()], required=True, metavar=r.upper())
-        )
+        click_params.append(click.Argument([r.upper()], required=True, metavar=r.upper()))
     for p in pos_params:
         click_params.append(
             click.Argument([p.name], required=p.required, default=p.default, type=_click_type(p))
@@ -397,8 +416,11 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
     for p in keyword_params:
         click_params.append(
             click.Option(
-                [f"--{p.name}"], required=p.required, default=p.default,
-                type=_click_type(p), help=p.description or None,
+                [f"--{p.name}"],
+                required=p.required,
+                default=p.default,
+                type=_click_type(p),
+                help=p.description or None,
             )
         )
     click_params.append(click.Option(["--show-sql"], is_flag=True, help="Print resolved SQL per role."))
@@ -460,9 +482,12 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
             key = diff.key if diff else (list(sample[0].keys())[:1] if sample else [])
             show = diff.show if diff else None
             render_side_by_side(
-                results[op.roles[0]], results[op.roles[1]],
-                key=key, show=show,
-                label_a=role_conns[op.roles[0]], label_b=role_conns[op.roles[1]],
+                results[op.roles[0]],
+                results[op.roles[1]],
+                key=key,
+                show=show,
+                label_a=role_conns[op.roles[0]],
+                label_b=role_conns[op.roles[1]],
                 title=f"{op_name}: {role_conns[op.roles[0]]} vs {role_conns[op.roles[1]]}",
             )
         else:
@@ -636,6 +661,7 @@ def operations_validate(ctx, strict):
     any pydantic / yaml errors instead of crashing on `--help`."""
     from dbctl.config import operations_path
     from dbctl.operations import load as load_ops
+
     path = operations_path(ctx.obj.get("profile"))
     if not path.exists():
         if strict:
@@ -649,10 +675,11 @@ def operations_validate(ctx, strict):
         console.print(f"[green]all {len(ops)} operations valid[/green]")
         # surface any obviously-undeclared params / sql gaps
         for name, op in ops.items():
-            is_fetched_single = (
-                op.scope.value == "single"
-                and op.mode.value in {"execute", "fetch", "fetch_one"}
-            )
+            is_fetched_single = op.scope.value == "single" and op.mode.value in {
+                "execute",
+                "fetch",
+                "fetch_one",
+            }
             if is_fetched_single and not op.sql:
                 err_console.print(f"[red]{name}:[/red] mode {op.mode.value!r} but no sql")
                 errs += 1
@@ -685,6 +712,7 @@ def doctor_cmd(ctx):
     from dbctl.db import DBError, build_engine
     from dbctl.db import healthcheck as hc
     from dbctl.tunnels.base import build_tunnel
+
     for n, c in conns.items():
         try:
             tun = build_tunnel(c)
@@ -711,6 +739,7 @@ def doctor_cmd(ctx):
 def init_cmd(ctx):
     """Interactive wizard to add a connection to ~/.dbctl/connections.yaml."""
     from dbctl.init import run_wizard
+
     run_wizard(profile=ctx.obj.get("profile"))
 
 
@@ -724,6 +753,7 @@ def history_cmd():
 @click.pass_context
 def history_list(ctx, limit):
     from dbctl.audit import read
+
     render_history_table(read(ctx.obj.get("profile"), limit=limit))
 
 
@@ -734,6 +764,7 @@ def history_show(ctx, run_id):
     import json
 
     from dbctl.audit import read
+
     for e in read(ctx.obj.get("profile"), limit=1000):
         if e.get("run_id") == run_id:
             console.print_json(json.dumps(e, default=str))
@@ -752,6 +783,7 @@ def tunnel_cmd():
 @click.pass_context
 def tunnel_open(ctx, name):
     from dbctl.connections import resolve
+
     conns, _ = registries(ctx)
     try:
         canonical, c = resolve(name, conns)
@@ -759,6 +791,7 @@ def tunnel_open(ctx, name):
         err_console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
     from dbctl.tunnels.base import build_tunnel
+
     tun = build_tunnel(c)
     tun.__enter__()
     console.print(f"[green]tunnel open:[/green] {tun.local_host}:{tun.local_port} -> {canonical}")
@@ -797,7 +830,9 @@ def _dashboard(ctx: click.Context) -> None:
         c = conns[n]
         table.add_row(
             n + (f" [dim]({','.join(c.aliases)})[/dim]" if c.aliases else ""),
-            c.type.value, c.driver, c.database,
+            c.type.value,
+            c.driver,
+            c.database,
             f"{single_count} single / {multi_count} multi",
             c.description,
         )
@@ -820,11 +855,13 @@ def render_history_table(rows: list[dict]):
         status = r.get("status", "")
         color = "green" if status == "ok" else ("yellow" if status == "dry-run" else "red")
         table.add_row(
-            str(r.get("ts", "")), str(r.get("connection", "")), str(r.get("operation", "")),
+            str(r.get("ts", "")),
+            str(r.get("connection", "")),
+            str(r.get("operation", "")),
             str(r.get("mode", "")),
             f"[{color}]{status}[/{color}]",
             str(r.get("rows_affected") or ""),
-            f"{r.get('duration_ms',0):.0f}" if r.get("duration_ms") else "",
+            f"{r.get('duration_ms', 0):.0f}" if r.get("duration_ms") else "",
             str(r.get("run_id", "")),
         )
     console.print(table)
@@ -835,7 +872,7 @@ def render_history_table(rows: list[dict]):
 # --------------------------------------------------------------------------- #
 def _print_completion(shell: str) -> None:
     console.print(f"[green]add to ~/.{shell}rc:[/green]")
-    console.print(f"  eval \"$(_DBCTL_COMPLETE={shell}_source dbctl)\"")
+    console.print(f'  eval "$(_DBCTL_COMPLETE={shell}_source dbctl)"')
     console.print("[dim]then `source ~/.{shell}rc` or restart your shell.[/dim]")
 
 

@@ -27,9 +27,7 @@ def _resolve_bastion_id(conn: _Conn) -> str:
     if conn.bastion_instance_id:
         return conn.bastion_instance_id
     if not conn.bastion_tags:
-        raise RuntimeError(
-            "ssm tunnel: neither 'bastion_instance_id' nor 'bastion_tags' is set"
-        )
+        raise RuntimeError("ssm tunnel: neither 'bastion_instance_id' nor 'bastion_tags' is set")
 
     # Use the JSON filter form so multi-tag filters are never mis-tokenised by
     # the AWS CLI's shorthand parser. Always add instance-state-name=running
@@ -38,19 +36,23 @@ def _resolve_bastion_id(conn: _Conn) -> str:
     tag_filters.append({"Name": "instance-state-name", "Values": ["running"]})
 
     cmd = [
-        "aws", "ec2", "describe-instances",
-        "--region", conn.region,
-        "--filters", json.dumps(tag_filters),
-        "--query", "Reservations[].Instances[].[InstanceId] | []",
-        "--output", "text",
+        "aws",
+        "ec2",
+        "describe-instances",
+        "--region",
+        conn.region,
+        "--filters",
+        json.dumps(tag_filters),
+        "--query",
+        "Reservations[].Instances[].[InstanceId] | []",
+        "--output",
+        "text",
     ]
     if conn.profile:
         cmd[1:1] = ["--profile", conn.profile]
 
     try:
-        result = subprocess.run(
-            cmd, check=True, capture_output=True, text=True, timeout=15
-        )
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=15)
     except FileNotFoundError as e:
         raise RuntimeError(
             "the `aws` CLI was not found on PATH — install it (e.g. "
@@ -58,19 +60,14 @@ def _resolve_bastion_id(conn: _Conn) -> str:
         ) from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"failed to resolve bastion tags {conn.bastion_tags}: "
-            f"{e.stderr.strip()[:200]}"
+            f"failed to resolve bastion tags {conn.bastion_tags}: {e.stderr.strip()[:200]}"
         ) from e
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"aws ec2 describe-instances timed out resolving {conn.bastion_tags}"
-        ) from e
+        raise RuntimeError(f"aws ec2 describe-instances timed out resolving {conn.bastion_tags}") from e
 
     instance_ids = [line for line in result.stdout.splitlines() if line.strip()]
     if not instance_ids:
-        raise RuntimeError(
-            f"no running instance found matching tags {conn.bastion_tags}"
-        )
+        raise RuntimeError(f"no running instance found matching tags {conn.bastion_tags}")
     if len(instance_ids) > 1:
         _console.print(
             f"[yellow]warning:[/yellow] {len(instance_ids)} instances match tags "
@@ -95,11 +92,17 @@ class SsmTunnel:
             "localPortNumber": [str(self.local_port)],
         }
         cmd = [
-            "aws", "ssm", "start-session",
-            "--region", self.conn.region,
-            "--target", target,
-            "--document-name", self.conn.ssm_document,
-            "--parameters", json.dumps(params),
+            "aws",
+            "ssm",
+            "start-session",
+            "--region",
+            self.conn.region,
+            "--target",
+            target,
+            "--document-name",
+            self.conn.ssm_document,
+            "--parameters",
+            json.dumps(params),
         ]
         if self.conn.profile:
             cmd[1:1] = ["--profile", self.conn.profile]
@@ -113,8 +116,7 @@ class SsmTunnel:
             )
         except FileNotFoundError as e:
             raise RuntimeError(
-                "the `aws` CLI was not found on PATH — install it before "
-                "opening an SSM tunnel"
+                "the `aws` CLI was not found on PATH — install it before opening an SSM tunnel"
             ) from e
         atexit.register(self._cleanup)
 

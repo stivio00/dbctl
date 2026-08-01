@@ -35,9 +35,7 @@ def run_wizard(*, profile: str | None) -> None:
     aliases = click.prompt("aliases (comma-separated, optional)", default="", type=str)
     aliases = [a.strip() for a in aliases.split(",") if a.strip()]
 
-    type_ = click.prompt(
-        "tunnel type", type=click.Choice([t.value for t in TunnelType]), default="direct"
-    )
+    type_ = click.prompt("tunnel type", type=click.Choice([t.value for t in TunnelType]), default="direct")
 
     driver = click.prompt(
         "driver (sqlalchemy url scheme)",
@@ -132,8 +130,12 @@ def _ask_ssh() -> SshTunnel:
     remote_port = click.prompt("remote port", type=int, default=5432)
     local_port = click.prompt("local port (0 = auto)", type=int, default=0)
     return SshTunnel(
-        host=host, user=user, identity=identity,
-        remote_host=remote_host, remote_port=remote_port, local_port=local_port,
+        host=host,
+        user=user,
+        identity=identity,
+        remote_host=remote_host,
+        remote_port=remote_port,
+        local_port=local_port,
     )
 
 

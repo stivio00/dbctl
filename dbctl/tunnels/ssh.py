@@ -23,12 +23,17 @@ class SshTunnel:
 
         cmd = [
             "ssh",
-            "-N",                       # no command, just forwarding
-            "-o", "ExitOnForwardFailure=yes",
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-p", str(self.conn.port),
-            "-i", os.path.expanduser(self.conn.identity),
-            "-L", forward,
+            "-N",  # no command, just forwarding
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-p",
+            str(self.conn.port),
+            "-i",
+            os.path.expanduser(self.conn.identity),
+            "-L",
+            forward,
             target,
         ]
         try:
@@ -40,8 +45,7 @@ class SshTunnel:
             )
         except FileNotFoundError as e:
             raise RuntimeError(
-                "the `ssh` CLI was not found on PATH — install OpenSSH "
-                "before opening an SSH tunnel"
+                "the `ssh` CLI was not found on PATH — install OpenSSH before opening an SSH tunnel"
             ) from e
         atexit.register(self._cleanup)
 

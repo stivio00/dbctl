@@ -107,7 +107,7 @@ def render_side_by_side(
             va = ra.get(c)
             vb = rb.get(c)
             try:
-                delta = (None if va is None or vb is None else float(va) - float(vb))
+                delta = None if va is None or vb is None else float(va) - float(vb)
             except (TypeError, ValueError):
                 delta = "n/a"
             styling_a = "[red]" if (rb and va is None) else ""
@@ -123,9 +123,7 @@ def render_side_by_side(
 
     _console.print(table)
     if only_a or only_b:
-        _console.print(
-            f"[dim]rows only in {label_a}: {only_a} | only in {label_b}: {only_b}[/dim]"
-        )
+        _console.print(f"[dim]rows only in {label_a}: {only_a} | only in {label_b}: {only_b}[/dim]")
 
 
 def _fmt_delta(d: Any) -> str:

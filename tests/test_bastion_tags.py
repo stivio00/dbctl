@@ -41,8 +41,12 @@ def test_ssm_config_accepts_id_only():
 
 def test_ssm_config_rejects_both():
     with pytest.raises(ValueError, match="exclusive"):
-        SsmTunnel(region="eu-west-1", bastion_instance_id="i-0abc",
-                  bastion_tags={"Name": "x"}, remote_host="db.internal")
+        SsmTunnel(
+            region="eu-west-1",
+            bastion_instance_id="i-0abc",
+            bastion_tags={"Name": "x"},
+            remote_host="db.internal",
+        )
 
 
 def test_ssm_config_rejects_neither():
@@ -54,8 +58,7 @@ def test_ssm_config_rejects_neither():
 # _resolve_bastion_id — direct id passthrough
 # --------------------------------------------------------------------------- #
 def test_resolve_with_explicit_id_does_not_shell_out():
-    conn = SsmTunnel(region="eu-west-1", bastion_instance_id="i-0deadbeef",
-                     remote_host="db.internal")
+    conn = SsmTunnel(region="eu-west-1", bastion_instance_id="i-0deadbeef", remote_host="db.internal")
     with mock.patch("dbctl.tunnels.ssm.subprocess.run") as m:
         out = _resolve_bastion_id(conn)
     assert out == "i-0deadbeef"
@@ -66,16 +69,17 @@ def test_resolve_with_explicit_id_does_not_shell_out():
 # _resolve_bastion_id — tags resolution command construction
 # --------------------------------------------------------------------------- #
 def _make_completed(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode,
-                                        stdout=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def test_resolve_with_tags_builds_correct_aws_command():
-    conn = SsmTunnel(region="eu-west-1",
-                     bastion_tags={"Name": "bastion-prod", "Env": "prod"},
-                     remote_host="db.internal", profile="prod")
-    with mock.patch("dbctl.tunnels.ssm.subprocess.run",
-                    return_value=_make_completed("i-0abcd1234\n")) as m:
+    conn = SsmTunnel(
+        region="eu-west-1",
+        bastion_tags={"Name": "bastion-prod", "Env": "prod"},
+        remote_host="db.internal",
+        profile="prod",
+    )
+    with mock.patch("dbctl.tunnels.ssm.subprocess.run", return_value=_make_completed("i-0abcd1234\n")) as m:
         out = _resolve_bastion_id(conn)
     assert out == "i-0abcd1234"
     m.assert_called_once()
@@ -108,20 +112,18 @@ def test_resolve_with_tags_builds_correct_aws_command():
 
 
 def test_resolve_with_tags_no_profile_omits_profile_flag():
-    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "bastion"},
-                     remote_host="db.internal")
-    with mock.patch("dbctl.tunnels.ssm.subprocess.run",
-                    return_value=_make_completed("i-0abc\n")) as m:
+    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "bastion"}, remote_host="db.internal")
+    with mock.patch("dbctl.tunnels.ssm.subprocess.run", return_value=_make_completed("i-0abc\n")) as m:
         _resolve_bastion_id(conn)
     args = m.call_args.args[0]
     assert "--profile" not in args
 
 
 def test_resolve_with_tags_picks_first_on_ambiguous_match(capsys):
-    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Env": "prod"},
-                     remote_host="db.internal")
-    with mock.patch("dbctl.tunnels.ssm.subprocess.run",
-                    return_value=_make_completed("i-0aaa\ni-0bbb\ni-0ccc\n")):
+    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Env": "prod"}, remote_host="db.internal")
+    with mock.patch(
+        "dbctl.tunnels.ssm.subprocess.run", return_value=_make_completed("i-0aaa\ni-0bbb\ni-0ccc\n")
+    ):
         out = _resolve_bastion_id(conn)
     assert out == "i-0aaa"
     # Warning must be printed to stderr (rich Console(stderr=True))
@@ -132,29 +134,34 @@ def test_resolve_with_tags_picks_first_on_ambiguous_match(capsys):
 
 
 def test_resolve_with_tags_raises_on_no_match():
-    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "nope"},
-                     remote_host="db.internal")
-    with (mock.patch("dbctl.tunnels.ssm.subprocess.run",
-                     return_value=_make_completed("")),
-          pytest.raises(RuntimeError, match="no running instance")):
+    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "nope"}, remote_host="db.internal")
+    with (
+        mock.patch("dbctl.tunnels.ssm.subprocess.run", return_value=_make_completed("")),
+        pytest.raises(RuntimeError, match="no running instance"),
+    ):
         _resolve_bastion_id(conn)
 
 
 def test_resolve_with_tags_raises_on_aws_error():
-    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "x"},
-                     remote_host="db.internal")
+    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "x"}, remote_host="db.internal")
     err = subprocess.CalledProcessError(
-        returncode=255, cmd=["aws"], stderr="ExpiredTokenException: ...",
+        returncode=255,
+        cmd=["aws"],
+        stderr="ExpiredTokenException: ...",
     )
-    with (mock.patch("dbctl.tunnels.ssm.subprocess.run", side_effect=err),
-          pytest.raises(RuntimeError, match="ExpiredToken")):
+    with (
+        mock.patch("dbctl.tunnels.ssm.subprocess.run", side_effect=err),
+        pytest.raises(RuntimeError, match="ExpiredToken"),
+    ):
         _resolve_bastion_id(conn)
 
 
 def test_resolve_with_tags_raises_on_timeout():
-    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "x"},
-                     remote_host="db.internal")
-    with (mock.patch("dbctl.tunnels.ssm.subprocess.run",
-                     side_effect=subprocess.TimeoutExpired(cmd=["aws"], timeout=15)),
-          pytest.raises(RuntimeError, match="timed out")):
+    conn = SsmTunnel(region="eu-west-1", bastion_tags={"Name": "x"}, remote_host="db.internal")
+    with (
+        mock.patch(
+            "dbctl.tunnels.ssm.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["aws"], timeout=15)
+        ),
+        pytest.raises(RuntimeError, match="timed out"),
+    ):
         _resolve_bastion_id(conn)

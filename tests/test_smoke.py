@@ -60,22 +60,24 @@ def engine(sqlite_conn) -> Engine:
 
 @pytest.fixture()
 def add_user_op() -> Operation:
-    return Operation.model_validate({
-        "description": "add or update a user (sqlite dialect)",
-        "scope": "single",
-        "mode": "execute",
-        "confirm": True,
-        "parameters": [
-            {"name": "name",  "type": "string",  "required": True, "position": 1, "description": "name"},
-            {"name": "quota", "type": "integer", "required": True, "position": 2, "description": "daily"},
-            {"name": "type",  "type": "string",  "default": "Daily", "position": 3, "description": "type"},
-        ],
-        "sql": (
-            "INSERT INTO users (name, quota_daily, quota_yearly, type) "
-            "VALUES ($name, $quota, $quota * 365, $type) "
-            "ON CONFLICT (name) DO UPDATE SET quota_daily = EXCLUDED.quota_daily"
-        ),
-    })
+    return Operation.model_validate(
+        {
+            "description": "add or update a user (sqlite dialect)",
+            "scope": "single",
+            "mode": "execute",
+            "confirm": True,
+            "parameters": [
+                {"name": "name", "type": "string", "required": True, "position": 1, "description": "name"},
+                {"name": "quota", "type": "integer", "required": True, "position": 2, "description": "daily"},
+                {"name": "type", "type": "string", "default": "Daily", "position": 3, "description": "type"},
+            ],
+            "sql": (
+                "INSERT INTO users (name, quota_daily, quota_yearly, type) "
+                "VALUES ($name, $quota, $quota * 365, $type) "
+                "ON CONFLICT (name) DO UPDATE SET quota_daily = EXCLUDED.quota_daily"
+            ),
+        }
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -98,52 +100,71 @@ def test_to_bindparams_leaves_dollar_digit_alone():
 # parameter binding
 # --------------------------------------------------------------------------- #
 def test_bind_params_coerces_int():
-    op = Operation.model_validate({
-        "scope": "single", "mode": "execute", "sql": "SELECT 1",
-        "parameters": [{"name": "n", "type": "integer", "required": True}],
-    })
+    op = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "execute",
+            "sql": "SELECT 1",
+            "parameters": [{"name": "n", "type": "integer", "required": True}],
+        }
+    )
     out = bind_params(op, {"n": "42"})
     assert out == {"n": 42} and isinstance(out["n"], int)
 
 
 def test_bind_params_uses_default():
-    op = Operation.model_validate({
-        "scope": "single", "mode": "execute", "sql": "SELECT 1",
-        "parameters": [
-            {"name": "n", "type": "integer", "default": 99},
-        ],
-    })
+    op = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "execute",
+            "sql": "SELECT 1",
+            "parameters": [
+                {"name": "n", "type": "integer", "default": 99},
+            ],
+        }
+    )
     out = bind_params(op, {})
     assert out == {"n": 99}
 
 
 def test_bind_params_list_splits_commas():
-    op = Operation.model_validate({
-        "scope": "single", "mode": "execute", "sql": "SELECT 1",
-        "parameters": [{"name": "ts", "type": "list", "required": True}],
-    })
+    op = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "execute",
+            "sql": "SELECT 1",
+            "parameters": [{"name": "ts", "type": "list", "required": True}],
+        }
+    )
     out = bind_params(op, {"ts": "a, b ,c"})
     assert out == {"ts": ["a", "b", "c"]}
 
 
 def test_bind_params_missing_required_raises():
-    op = Operation.model_validate({
-        "scope": "single", "mode": "execute", "sql": "SELECT 1",
-        "parameters": [{"name": "n", "type": "string", "required": True}],
-    })
+    op = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "execute",
+            "sql": "SELECT 1",
+            "parameters": [{"name": "n", "type": "string", "required": True}],
+        }
+    )
     with pytest.raises(ValueError, match="missing required parameter"):
         bind_params(op, {})
 
 
 def test_format_sql_interpolates():
-    add = Operation.model_validate({
-        "scope": "single", "mode": "execute",
-        "sql": "INSERT INTO t VALUES ($name, $n)",
-        "parameters": [
-            {"name": "name", "type": "string", "required": True},
-            {"name": "n", "type": "integer", "required": True},
-        ],
-    })
+    add = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "execute",
+            "sql": "INSERT INTO t VALUES ($name, $n)",
+            "parameters": [
+                {"name": "name", "type": "string", "required": True},
+                {"name": "n", "type": "integer", "required": True},
+            ],
+        }
+    )
     rendered = format_sql(add, {"name": "alice", "n": 12})
     assert ":name" not in rendered and "'alice'" in rendered and "12" in rendered
 
@@ -160,10 +181,14 @@ def test_execute_modewrites_row(engine, add_user_op):
 
 
 def test_fetch_mode_returns_dict_rows(engine):
-    fetch_op = Operation.model_validate({
-        "scope": "single", "mode": "fetch", "sql": "SELECT name, quota_daily FROM users",
-        "parameters": [],
-    })
+    fetch_op = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "fetch",
+            "sql": "SELECT name, quota_daily FROM users",
+            "parameters": [],
+        }
+    )
     with engine.begin() as c:
         c.execute(text("INSERT INTO users (name, quota_daily) VALUES ('a', 1), ('b', 2)"))
     with engine.connect() as c:
@@ -172,10 +197,14 @@ def test_fetch_mode_returns_dict_rows(engine):
 
 
 def test_fetch_one_mode_returns_one(engine):
-    fetch_one = Operation.model_validate({
-        "scope": "single", "mode": "fetch_one", "sql": "SELECT quota_daily FROM users WHERE name = $name",
-        "parameters": [{"name": "name", "type": "string", "required": True}],
-    })
+    fetch_one = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "fetch_one",
+            "sql": "SELECT quota_daily FROM users WHERE name = $name",
+            "parameters": [{"name": "name", "type": "string", "required": True}],
+        }
+    )
     with engine.begin() as c:
         c.execute(text("INSERT INTO users (name, quota_daily) VALUES ('a', 1)"))
     with engine.connect() as c:
@@ -184,10 +213,14 @@ def test_fetch_one_mode_returns_one(engine):
 
 
 def test_upsert_mode_dispatches_error(engine):
-    up = Operation.model_validate({
-        "scope": "single", "mode": "upsert", "sql": None,
-        "parameters": [],
-    })
+    up = Operation.model_validate(
+        {
+            "scope": "single",
+            "mode": "upsert",
+            "sql": None,
+            "parameters": [],
+        }
+    )
     with engine.connect() as c, pytest.raises(RuntimeError, match="dispatched in execute.upsert"):
         render(c, up, {})
 
@@ -213,13 +246,17 @@ def test_diff_side_by_side_renders(engine):
 # --------------------------------------------------------------------------- #
 def test_audit_append_read(tmp_path, monkeypatch):
     from dbctl import audit
-    monkeypatch.setattr(
-        audit, "history_path", lambda profile=None: tmp_path / "h.jsonl"
-    )
+
+    monkeypatch.setattr(audit, "history_path", lambda profile=None: tmp_path / "h.jsonl")
     rid = append(
-        profile=None, connection="pg", operation="add-user",
-        params={"name": "alice"}, mode="execute", status="ok",
-        rows_affected=1, duration_ms=12.3,
+        profile=None,
+        connection="pg",
+        operation="add-user",
+        params={"name": "alice"},
+        mode="execute",
+        status="ok",
+        rows_affected=1,
+        duration_ms=12.3,
     )
     assert isinstance(rid, str) and len(rid) == 12
     entries = read(None, limit=5)
@@ -229,11 +266,15 @@ def test_audit_append_read(tmp_path, monkeypatch):
 
 def test_audit_redacts_secret_params(tmp_path, monkeypatch):
     from dbctl import audit
+
     monkeypatch.setattr(audit, "history_path", lambda profile=None: tmp_path / "h.jsonl")
     append(
-        profile=None, connection="pg", operation="change-pwd",
+        profile=None,
+        connection="pg",
+        operation="change-pwd",
         params={"username": "alice", "password": "hunter2"},
-        mode="execute", status="ok",
+        mode="execute",
+        status="ok",
         redact={"password"},
     )
     entries = read(None, limit=5)
