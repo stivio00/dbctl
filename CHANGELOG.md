@@ -5,6 +5,23 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-08-01
+
+### Added
+
+- **`k8s` tunnel type** via `kubectl port-forward`. Reaches databases
+  exposed as Services or Pods inside a Kubernetes cluster — useful for
+  StatefulSets / operators (CloudNativePG, Postgres Operator, etc.).
+  Requires the `kubectl` CLI on PATH; kubeconfig resolution is left
+  untouched so existing EKS / GKE / k3s auth flows work. Config fields:
+  `context` (required), `namespace` (optional), `target`
+  (`svc/<name>` or `pod/<name>`), `remote_port`, `local_port`.
+- **`dbctl doctor` dependency check** — beyond the per-connection
+  healthchecks, doctor now prints an "optional dependencies" table for
+  `kubectl`, `aws`, and `ssh`. A tool is shown as `required by config:
+  yes` only when at least one configured connection uses the
+  corresponding tunnel type, so a direct-only repo won't surface noise.
+
 ## [0.2.1] — 2026-08-01
 
 Pipeline smoke release — verifies the trusted-publishing flow end-to-end

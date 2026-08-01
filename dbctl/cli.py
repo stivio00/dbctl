@@ -702,7 +702,7 @@ def status_cmd(ctx):
 @click.command("doctor")
 @click.pass_context
 def doctor_cmd(ctx):
-    """Healthcheck all connections."""
+    """Healthcheck all connections and report optional CLI dependencies."""
     conns, _ = registries(ctx)
     table = Table(title="doctor", header_style="bold cyan")
     table.add_column("connection")
@@ -732,6 +732,55 @@ def doctor_cmd(ctx):
         except (RuntimeError, DBError) as e:
             table.add_row(n, "[red]ERR[/red]", "-", str(e)[:80])
     console.print(table)
+
+    _doctor_deps(ctx, conns)
+
+
+def _doctor_deps(ctx, conns) -> None:
+    """Print a small table of *optional* CLI tools dbctl may shell out to.
+
+    A tool is reported as ``OK`` if found on PATH; ``missing`` otherwise.
+    A tool is only reported as ``required`` when at least one configured
+    connection uses the corresponding tunnel type - so a fresh repo with
+    only `direct` connections won't surface noise about absent `kubectl`.
+    """
+    import shutil
+
+    from dbctl.config import TunnelType
+
+    used_types = {c.type for c in conns.values()}
+    # tool -> (tunnel type that needs it, help text when missing)
+    deps = [
+        ("kubectl", TunnelType.k8s, "install: https://kubernetes.io/docs/tasks/tools/"),
+        ("aws", TunnelType.ssm, "install: `pip install awscli` or your OS package"),
+        ("ssh", TunnelType.ssh, "install: OpenSSH client (openssh-clients / openssh-client)"),
+    ]
+
+    dep_table = Table(title="optional dependencies", header_style="bold cyan")
+    dep_table.add_column("tool")
+    dep_table.add_column("status")
+    dep_table.add_column("required by config")
+    dep_table.add_column("note")
+
+    for tool, tun_type, hint in deps:
+        on_path = shutil.which(tool) is not None
+        required = tun_type in used_types
+        if on_path:
+            status_cell = "[green]OK[/green]"
+            note_cell = ""
+        elif required:
+            status_cell = "[red]missing[/red]"
+            note_cell = f"[red]required by a '{tun_type.value}' connection[/red] — {hint}"
+        else:
+            status_cell = "[yellow]not on PATH[/yellow]"
+            note_cell = f"only needed for '{tun_type.value}' tunnels — {hint}"
+        dep_table.add_row(
+            tool,
+            status_cell,
+            "yes" if required else "no",
+            note_cell,
+        )
+    console.print(dep_table)
 
 
 @click.command("init")

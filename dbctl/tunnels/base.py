@@ -51,6 +51,7 @@ def _terminate(proc: subprocess.Popen) -> None:
 
 def build_tunnel(conn: Connection) -> Tunnel:
     from dbctl.tunnels.direct import DirectTunnel as _Direct
+    from dbctl.tunnels.k8s import K8sTunnel as _K8s
     from dbctl.tunnels.ssh import SshTunnel as _Ssh
     from dbctl.tunnels.ssm import SsmTunnel as _Ssm
 
@@ -61,6 +62,9 @@ def build_tunnel(conn: Connection) -> Tunnel:
         case "ssh":
             assert conn.ssh
             return _Ssh(conn.ssh)
+        case "k8s":
+            assert conn.k8s
+            return _K8s(conn.k8s)
         case "direct":
             assert conn.direct
             return _Direct(conn.direct)

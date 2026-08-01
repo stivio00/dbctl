@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class TunnelType(StrEnum):
     ssm = "ssm"
     ssh = "ssh"
+    k8s = "k8s"
     direct = "direct"
 
 
@@ -117,6 +118,23 @@ class SshTunnel(BaseModel):
     port: int = 22  # bastion SSH port
 
 
+class K8sTunnel(BaseModel):
+    """Kubernetes port-forward via ``kubectl port-forward`` subprocess.
+
+    Reaches databases exposed as Services or Pods inside a cluster - useful
+    for StatefulSets / operators (CloudNativePG, Postgres Operator, etc.).
+    The ``kubectl`` CLI on PATH is invoked; kubeconfig / context resolution
+    is left to kubectl itself, so existing ``~/.kube/config`` works.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    context: str  # k8s context to use (--context)
+    namespace: str | None = None  # optional; defaults to kubeconfig default
+    target: str  # e.g. "svc/postgres-primary" or "pod/postgres-0"
+    remote_port: int = 5432  # port on the Service/Pod to forward
+    local_port: int = 0  # 0 = auto-pick free port
+
+
 class DirectTunnel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     host: str
@@ -163,6 +181,7 @@ class Connection(BaseModel):
 
     ssm: SsmTunnel | None = None
     ssh: SshTunnel | None = None
+    k8s: K8sTunnel | None = None
     direct: DirectTunnel | None = None
 
     healthcheck: Healthcheck = Field(default_factory=Healthcheck)
@@ -178,6 +197,9 @@ class Connection(BaseModel):
             case TunnelType.ssh:
                 if self.ssh is None:
                     raise ValueError("'ssh' block required when type=ssh")
+            case TunnelType.k8s:
+                if self.k8s is None:
+                    raise ValueError("'k8s' block required when type=k8s")
             case TunnelType.direct:
                 if self.direct is None:
                     raise ValueError("'direct' block required when type=direct")

@@ -20,7 +20,7 @@ falling back to defaults.
 |-----------------|-------------------------------------------|----------|-------|
 | `description`   | string                                    | no       | shown in the dashboard and `dbctl connections list`. |
 | `aliases`       | list of strings                           | no       | alternates that resolve back to this connection (e.g. `prod` → `db1`). |
-| `type`          | `ssm` \| `ssh` \| `direct`                | **yes**  | selects the tunnel implementation. |
+| `type`          | `ssm` \| `ssh` \| `k8s` \| `direct`       | **yes**  | selects the tunnel implementation. |
 | `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported conventions: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`. Any other SQLAlchemy scheme works as long as its driver is importable. |
 | `database`      | string                                    | **yes**  | database / catalog name passed to SQLAlchemy. |
 | `username`      | string                                    | **yes**  | DB user. |
@@ -28,6 +28,7 @@ falling back to defaults.
 | `prompt`        | bool                                      | see rule | prompt for the DB password interactively each run. Mutually exclusive with `password_env`. |
 | `ssm`           | [`SsmTunnel`](#ssm-block)                 | yes if `type: ssm` | tunnel params. |
 | `ssh`           | [`SshTunnel`](#ssh-block)                 | yes if `type: ssh` | tunnel params. |
+| `k8s`           | [`K8sTunnel`](#k8s-block)                 | yes if `type: k8s` | tunnel params. |
 | `direct`        | [`DirectTunnel`](#direct-block)           | yes if `type: direct` | upstream params (no tunnel). |
 | `healthcheck`   | [`Healthcheck`](#healthcheck-block)      | no       | `SELECT 1` by default. |
 | `info`          | list of [`InfoQuery`](#info-query)        | no       | named introspection queries that `dbctl <conn> info <name>` can run. |
@@ -85,6 +86,33 @@ ssh:
 - The tunnel uses `ExitOnForwardFailure=yes` so a port conflict fails fast
   (rather than hanging) and `StrictHostKeyChecking=accept-new` so a
   first-time bastion is accepted automatically.
+
+## `k8s` block
+
+Kubernetes port-forward via `kubectl port-forward`. Useful for databases
+exposed as Services or Pods inside a cluster — notably StatefulSets /
+operators such as [CloudNativePG](https://cloudnative-pg.io/) and
+[Postgres Operator](https://github.com/zalando/postgres-operator) where
+there is no long-lived external endpoint.
+
+```yaml
+k8s:
+  context: prod-cluster                  # --context; required
+  namespace: data                        # optional; blank = kubeconfig default
+  target: svc/postgres-primary           # also accepts pod/<name>
+  remote_port: 5432                      # port on the Service/Pod to forward
+  local_port: 0                          # 0 = auto (dbctl picks a free port)
+```
+
+- `target` is forwarded verbatim to `kubectl port-forward`, so anything
+  kubectl accepts as the resource identifier works: `svc/<name>`,
+  `pod/<name>`, or bare `<name>` (resolved as a Service).
+- `namespace` is optional; when omitted the kubeconfig default is used.
+- kubectl's own kubeconfig resolution (`~/.kube/config`, `KUBECONFIG`,
+  …) is left untouched — dbctl only adds `--context` (and `--namespace`
+  when set). Your existing EKS / GKE / k3s auth flows work as-is.
+- `dbctl doctor` reports whether `kubectl` is on `PATH`; it is listed as
+  `required by config` only when at least one connection uses `type: k8s`.
 
 ## `direct` block
 
@@ -230,4 +258,34 @@ connections:
     direct: { host: localhost, port: 1433 }
     healthcheck: { query: "SELECT 1" }
     safety: { confirm: false, read_only: false }
+```
+
+### CloudNativePG cluster via kubectl port-forward
+
+```yaml
+connections:
+  cnpg-prod:
+    description: "Production CloudNativePG cluster"
+    aliases: [prod]
+    type: k8s
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_CNPG_PROD_PASSWORD
+    k8s:
+      context: prod-euks
+      namespace: data
+      target: svc/cnpg-primary
+      remote_port: 5432
+      local_port: 0
+    healthcheck: { query: "SELECT 1", timeout_seconds: 5 }
+    info:
+      - name: row_counts
+        query: "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10"
+      - name: active_conns
+        query: "SELECT count(*) FROM pg_stat_activity"
+    safety:
+      confirm: true
+      read_only: false
+      allowed_operations: []
 ```

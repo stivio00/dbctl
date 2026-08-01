@@ -115,6 +115,41 @@ connections:
       read_only: true
       allowed_operations: []
 
+  # Kubernetes port-forward to a Service or Pod inside a cluster - useful for
+  # StatefulSets / operators (CloudNativePG, Postgres Operator, etc.).
+  # Requires the `kubectl` CLI on PATH and a valid kubeconfig the named
+  # `context` resolves in. `namespace` is optional (defaults to the kubeconfig
+  # default). `target` is whatever kubectl port-forward accepts after the
+  # flags: `svc/<name>`, `pod/<name>`, or bare `<name>` (resolved as svc).
+  pg-k8s:
+    description: "REFERENCE: Postgres via kubectl port-forward (edit before using)"
+    aliases: []
+    type: k8s
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_PG_K8S_PASSWORD
+    k8s:
+      context: prod-cluster             # --context; required
+      namespace: data                   # optional; blank = kubeconfig default
+      target: svc/postgres-primary      # also accepts pod/<name>
+      remote_port: 5432                 # port on the Service/Pod
+      local_port: 0                     # 0 = dbctl picks a free local port
+    healthcheck: { query: "SELECT 1" }
+    info:
+      - name: row_counts
+        description: "Top tables by row count"
+        query: |
+          SELECT relname AS table, n_live_tup AS rows
+          FROM pg_stat_user_tables
+          ORDER BY n_live_tup DESC LIMIT 10
+      - name: active_conns
+        query: "SELECT count(*) FROM pg_stat_activity"
+    safety:
+      confirm: true
+      read_only: true
+      allowed_operations: []
+
   # Classic SSH port-forward through a bastion host to an internal Postgres.
   # Requires the `ssh` CLI on PATH and a working key file at `identity`
   # (tilde is expanded). The operator's ~/.ssh/config + agent keep working.

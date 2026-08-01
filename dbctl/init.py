@@ -15,6 +15,7 @@ from dbctl.config import (
     Connection,
     DirectTunnel,
     Healthcheck,
+    K8sTunnel,
     SshTunnel,
     SsmTunnel,
     TunnelType,
@@ -53,11 +54,13 @@ def run_wizard(*, profile: str | None) -> None:
     password_env = f"DBCTL_{name.upper()}_PASSWORD" if cred == "env" else None
     prompt = cred == "prompt"
 
-    ssm = ssh = direct = None
+    ssm = ssh = k8s = direct = None
     if type_ == "ssm":
         ssm = _ask_ssm()
     elif type_ == "ssh":
         ssh = _ask_ssh()
+    elif type_ == "k8s":
+        k8s = _ask_k8s()
     else:
         host = click.prompt("host", default="localhost")
         port = click.prompt("port", type=int, default=_default_port(driver))
@@ -78,6 +81,7 @@ def run_wizard(*, profile: str | None) -> None:
         prompt=prompt,
         ssm=ssm,
         ssh=ssh,
+        k8s=k8s,
         direct=direct,
         healthcheck=healthcheck,
         safety={"confirm": confirm, "read_only": read_only},
@@ -134,6 +138,23 @@ def _ask_ssh() -> SshTunnel:
         user=user,
         identity=identity,
         remote_host=remote_host,
+        remote_port=remote_port,
+        local_port=local_port,
+    )
+
+
+def _ask_k8s() -> K8sTunnel:
+    context = click.prompt("k8s context (--context)", type=str)
+    namespace = click.prompt("namespace (optional, blank=kubeconfig default)", default="")
+    # Accept "svc/foo", "pod/bar" or bare "foo" (we accept whatever the user
+    # typed; kubectl itself will reject invalid targets at port-forward time).
+    target = click.prompt("target (svc/foo or pod/bar)", type=str)
+    remote_port = click.prompt("remote port (on the Service/Pod)", type=int, default=5432)
+    local_port = click.prompt("local port (0 = auto)", type=int, default=0)
+    return K8sTunnel(
+        context=context,
+        namespace=namespace or None,
+        target=target,
         remote_port=remote_port,
         local_port=local_port,
     )
