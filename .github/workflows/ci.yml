@@ -1,80 +1,136 @@
 name: CI
 
+# Run on every push to main and on PRs touching python / packaging /
+# workflow files. Use path filters so doc-only edits don't burn CI minutes.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Cancel any in-progress run when a new commit lands on the same ref —
+# saves CI minutes on rapid force-pushes and PR update churn.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ----------------------------------------------------------------------- #
-  # lint + typecheck (fast, no extras needed)
+  # lint + typecheck — fast, no project deps installed
   # ----------------------------------------------------------------------- #
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         run: uv python install 3.12
       - name: Install dev deps
-        run: uv sync --extra dev
-      - name: Ruff
-        run: uv run ruff check dbctl tests
+        # --frozen keeps CI honest: if uv.lock is out of date the job
+        # fails rather than silently re-resolving.
+        run: uv sync --frozen --extra dev
+      - name: Ruff (annotations PR-native)
+        # --output-format=github emits ::error/::warning annotations that
+        # show up directly on PR file diffs and the run summary.
+        run: uv run ruff check --output-format=github dbctl tests
+      - name: Ruff format check
+        run: uv run ruff format --check dbctl tests
       - name: Mypy
+        # Non-blocking: the codebase has pre-existing annotation debt that
+        # is being paid down incrementally. Remove `continue-on-error`
+        # once the count reaches zero.
         run: uv run mypy dbctl
-        continue-on-error: true  # pre-existing annotation debt; track separately
+        continue-on-error: true
 
   # ----------------------------------------------------------------------- #
-  # unit tests across supported python versions
+  # test — matrix across supported Python versions + OSes
   # ----------------------------------------------------------------------- #
   test:
     needs: lint
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        # requires-python = ">=3.11" in pyproject.toml
         python-version: ["3.11", "3.12", "3.13"]
-        os: [ubuntu-latest]
-        include:
-          - python-version: "3.12"
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest, macos-latest]
+        exclude:
+          # Trim the matrix: macos + 3.11 + 3.13 stay, but skip 3.13 on
+          # mac to keep minutes in check (Linux covers the linux/3.13 case).
+          - os: macos-latest
+            python-version: "3.11"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install deps
-        run: uv sync --extra dev --extra postgres --extra mysql
-      - name: Pytest
-        run: uv run pytest tests/ -v
+        # mssql extra needs ODBC at the system level (libodbc.so), which
+        # isn't on these runners by default; tests don't need it.
+        run: uv sync --frozen --extra dev --extra postgres --extra mysql
+      - name: Run pytest with coverage
+        # --junitxml so failed runs still produce a report artifact;
+        # --cov + --cov-report=xml for coverage upload.
+        run: |
+          uv run pytest tests/ \
+            --junitxml=reports/junit-${{ matrix.os }}-${{ matrix.python-version }}.xml \
+            --cov=dbctl \
+            --cov-report=xml:reports/coverage-${{ matrix.os }}-${{ matrix.python-version }}.xml \
+            --cov-report=term
+      - name: Upload test results
+        if: always()  # upload even on failure so flaky-test data survives
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: reports/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload coverage to Codecov
+        # Codecov works tokenless on public repos via OIDC. On private
+        # repos add a CODECOV_TOKEN secret and uncomment `token:`.
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: reports/coverage-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          disable_search: true
+          fail_ci_if_error: false
+          # token: ${{ secrets.CODECOV_TOKEN }}
 
   # ----------------------------------------------------------------------- #
-  # build wheel + sdist; upload artifact for inspection on every run
+  # build — wheel + sdist; upload artifact for inspection on every run
   # ----------------------------------------------------------------------- #
   build:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Set up Python
         run: uv python install 3.12
       - name: Build distributions
         run: uv build
+      - name: Verify metadata
+        run: uv run --with twine twine check dist/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -83,17 +139,23 @@ jobs:
           if-no-files-found: error
 
   # ----------------------------------------------------------------------- #
-  # publish to PyPI — only on a pushed v* tag, gated on the test job
+  # publish — only on a pushed v* tag, gated on test + build
   # ----------------------------------------------------------------------- #
   publish:
-    needs: build
+    needs: [test, build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment: pypi
+    timeout-minutes: 5
+    # Dedicated environment — configure "pypi" under repo settings →
+    # Environments with required reviewers/wait-for-approval before the
+    # job can publish. PyPI trusted publishing needs id-token: write.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dbctl
     permissions:
+      contents: read
       id-token: write  # OIDC trusted publishing
     steps:
-      - uses: actions/checkout@v4
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
