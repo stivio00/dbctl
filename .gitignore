@@ -1,0 +1,35 @@
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# virtual envs
+.venv/
+venv/
+env/
+
+# test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# local dbctl runtime state (sample configs live under .dbctl/ in the repo;
+# ignore the per-user history/profile data that dbctl writes at runtime)
+.dbctl/history.jsonl
+.dbctl/profiles/
