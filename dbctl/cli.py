@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -31,6 +32,48 @@ from dbctl.runtime import (
     opened_conn,
     registries,
 )
+
+# --------------------------------------------------------------------------- #
+# Negative-number hint for dynamic commands
+# --------------------------------------------------------------------------- #
+_NEG_OPT_RE = re.compile(r"No such option '(-\d[^']*)'")
+
+
+class _NegNumberHintCommand(click.Command):
+    """Click can't parse a negative number as a positional Argument value
+    (only Options support negative-number detection, and only with a Range
+    type and `min < 0`). When the user writes ``dbctl pg increase-quota
+    zelda -10`` Click reports ``No such option '-1'`` which is opaque.
+
+    This subclass intercepts that exact error and appends a hint pointing
+    the user at the ``--`` separator: ``dbctl <conn> <op> ... -- <args>``.
+    See https://github.com/pallets/click/issues/2169 for the upstream
+    limitation.
+    """
+
+    def parse_args(self, ctx, args):
+        # Click's parser mutates `args` in place while it consumes tokens,
+        # so by the time the except block runs the list is empty. Snapshot
+        # here while still pristine.
+        original_args = list(args)
+        try:
+            return super().parse_args(ctx, args)
+        except click.exceptions.UsageError as e:
+            m = _NEG_OPT_RE.match(e.message or "")
+            if m:
+                # Click truncates the bad token to the first option char
+                # (e.g. `-10` → `-1`), so scan the original argv for the
+                # offending token to show the user what *they* typed.
+                bad = next(
+                    (a for a in original_args if a.startswith("-") and len(a) > 1 and a[1].isdigit()),
+                    m.group(1),
+                )
+                e.message = (
+                    f"{e.message}\n  hint: a positional argument can't start "
+                    f"with '-'. Separate options from positionals with '--':\n"
+                    f"  {ctx.command_path} [opts] -- <positional args including {bad}>"
+                )
+            raise
 
 
 # --------------------------------------------------------------------------- #
@@ -241,7 +284,7 @@ def _make_single_op_command(conn_name: str, op_name: str, op: Operation) -> clic
     help_text = (op.description or "").strip()
     if sig:
         help_text = f"{help_text}\n\n  dbctl {conn_name} {op_name} {sig}"
-    return click.Command(
+    return _NegNumberHintCommand(
         name=op_name,
         params=click_params,
         callback=callback,
@@ -453,10 +496,16 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
         try:
             for role in op.roles:
                 cname = role_conns[role]
-                canonical, conn = resolve(cname, conns_all)
+                try:
+                    canonical, conn = resolve(cname, conns_all)
+                except KeyError as e:
+                    err_console.print(f"[red]{e}[/red]")
+                    raise SystemExit(2)
                 oc = opened(canonical, conn).__enter__()
                 opened_list.append(oc)
                 results[role] = run_role(op, role, oc, bound)
+        except SystemExit:
+            raise
         except RuntimeError as e:
             err_console.print(f"[red]{e}[/red]")
             raise SystemExit(1)
@@ -497,7 +546,7 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
     sig = " ".join(r.upper() for r in op.roles) + (
         " " + " ".join(p.name.upper() for p in pos_params) if pos_params else ""
     )
-    return click.Command(
+    return _NegNumberHintCommand(
         name=op_name,
         params=click_params,
         callback=callback,
@@ -613,12 +662,16 @@ def connections_list(ctx):
 @click.argument("name")
 @click.pass_context
 def connections_show(ctx, name):
+    from dbctl.connections import resolve
+
     conns, _ = registries(ctx)
-    if name not in conns:
-        err_console.print(f"[red]unknown connection {name!r}[/red]")
+    try:
+        canonical, conn = resolve(name, conns)
+    except KeyError as e:
+        err_console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
     console.print(
-        yaml.safe_dump({name: conns[name].model_dump(mode="json")}, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump({canonical: conn.model_dump(mode="json")}, sort_keys=False, allow_unicode=True)
     )
 
 

@@ -96,6 +96,38 @@ def test_to_bindparams_leaves_dollar_digit_alone():
     assert to_bindparams("SELECT $1") == "SELECT $1"
 
 
+def test_to_bindparams_cast_simple():
+    # Postgres idiom `$name::type` rewrites to the SQL-standard
+    # `CAST(:name AS type)` so it works on every dialect and doesn't
+    # collide with psycopg's bindparam parser.
+    assert to_bindparams("SELECT $x::timestamp") == "SELECT CAST(:x AS timestamp)"
+
+
+def test_to_bindparams_cast_multiple_in_expression():
+    assert to_bindparams("$x::text || $y::int") == "CAST(:x AS text) || CAST(:y AS int)"
+
+
+def test_to_bindparams_cast_with_precision():
+    assert to_bindparams("SELECT $x::varchar(255)") == "SELECT CAST(:x AS varchar(255))"
+
+
+def test_to_bindparams_cast_with_numeric_precision():
+    assert to_bindparams("SELECT $x::numeric(10, 2)") == "SELECT CAST(:x AS numeric(10, 2))"
+
+
+def test_to_bindparams_cast_schema_qualified():
+    assert to_bindparams("SELECT $x::pg.text") == "SELECT CAST(:x AS pg.text)"
+
+
+def test_to_bindparams_cast_in_where_clause():
+    # The actual `report-logs` SQL shape that broke psycopg pre-fix.
+    sql = "WHERE created_at >= $since::timestamp AND created_at < $until::timestamp"
+    assert (
+        to_bindparams(sql)
+        == "WHERE created_at >= CAST(:since AS timestamp) AND created_at < CAST(:until AS timestamp)"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # parameter binding
 # --------------------------------------------------------------------------- #

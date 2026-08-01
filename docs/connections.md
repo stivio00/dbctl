@@ -24,8 +24,9 @@ falling back to defaults.
 | `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported conventions: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`. Any other SQLAlchemy scheme works as long as its driver is importable. |
 | `database`      | string                                    | **yes**  | database / catalog name passed to SQLAlchemy. |
 | `username`      | string                                    | **yes**  | DB user. |
-| `password_env`  | string                                    | see rule | name of the environment variable holding the DB password. Mutually exclusive with `prompt`. |
-| `prompt`        | bool                                      | see rule | prompt for the DB password interactively each run. Mutually exclusive with `password_env`. |
+| `password`      | string                                    | see rule | plaintext DB password (local dev only — don't commit real secrets to YAML). Mutually exclusive with `password_env` and `prompt`. |
+| `password_env`  | string                                    | see rule | name of the environment variable holding the DB password. Mutually exclusive with `password` and `prompt`. |
+| `prompt`        | bool                                      | see rule | prompt for the DB password interactively each run. Mutually exclusive with `password` and `password_env`. |
 | `ssm`           | [`SsmTunnel`](#ssm-block)                 | yes if `type: ssm` | tunnel params. |
 | `ssh`           | [`SshTunnel`](#ssh-block)                 | yes if `type: ssh` | tunnel params. |
 | `k8s`           | [`K8sTunnel`](#k8s-block)                 | yes if `type: k8s` | tunnel params. |
@@ -34,8 +35,30 @@ falling back to defaults.
 | `info`          | list of [`InfoQuery`](#info-query)        | no       | named introspection queries that `dbctl <conn> info <name>` can run. |
 | `safety`        | [`Safety`](#safety-block)                 | no       | gates DML. |
 
-**Credential rule.** Exactly one of `password_env` and `prompt` must be set;
-there is no plaintext-password field and no Secrets Manager integration.
+**Credential rule.** Exactly one of `password`, `password_env`, and `prompt`
+must be set; they are mutually exclusive. `password` (plaintext) is fine for
+local dev fleets like the bundled docker-compose sample; for anything shared
+or production-shaped prefer `password_env` (the value lives in your shell /
+secret manager, never in YAML) or `prompt: true` (interactive, leaves no
+trace). There is no Secrets Manager / Vault integration — the assumption is
+your existing SSO session and shell environment already wrap the secrets you
+need.
+
+### Loader resilience
+
+Each connection is validated **individually**, not as one all-or-nothing
+`ConnectionsFile`. A mis-configured connection (a reference template with no
+password source, a typo'd driver name, an unknown tunnel block, …) is skipped
+with a one-line warning on stderr, and the good connections still load so the
+dashboard and `--help` keep working:
+
+```
+connections.yaml: 1 invalid connection skipped:
+  pg-ssm: set 'password', 'password_env' or 'prompt: true' for each connection
+```
+
+The offending connection is simply absent from `dbctl connections list` until
+you fix it — the CLI never refuses to start because of one bad entry.
 
 ## `ssm` block
 

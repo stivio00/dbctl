@@ -78,11 +78,27 @@ sql: |
 
 - `$1`, `$2`, … are **not** rewritten (they're positional placeholders in
   some dialects) — the regex only matches `$<identifier>`.
+- The Postgres cast idiom `$name::type` is rewritten to the SQL-standard
+  `CAST(:name AS type)` form so the same operation YAML works cross-dialect
+  and doesn't collide with psycopg's bind-param parser. Parenthesised
+  precision / length is preserved, e.g. `$x::numeric(10, 2)` →
+  `CAST(:x AS numeric(10, 2))`, and schema-qualified types work too
+  (`$x::pg.text` → `CAST(:x AS pg.text)`).
 - PostgreSQL dollar-quoted strings (`$$ ... $$`) are not specially handled:
   avoid mixing dollar-quoting with `$name` parameters in the same operation.
   Use single-quoted string literals for any in-SQL text.
 - The same placeholder can appear twice in one statement
   (`VALUES ($quota, $quota * 365)`); the driver reuses the value.
+
+> **Negative positional arguments.** Click can't distinguish a negative
+> number from an unknown option when it appears as a positional `Argument`
+> value (e.g. `dbctl pg increase-quota alice -10` is parsed as the unknown
+> option `-1`). The error message includes a hint pointing at the `--`
+> separator, which you can use to unambiguously mark the start of positionals:
+>
+> ```bash
+> dbctl pg increase-quota --apply -y -- alice -10
+> ```
 
 ## <a name="mode"></a> `mode` (single-scope)
 
@@ -217,6 +233,21 @@ operations:
       - { name: prefix, type: string, required: true, position: 1 }
     sql: |
       SELECT name, quota_daily, is_active FROM users WHERE name ILIKE $prefix || '%'
+
+  increase-quota:
+    description: "Increase a user's daily and yearly quota by a percentage"
+    scope: single
+    mode: execute
+    confirm: true
+    parameters:
+      - { name: name, type: string, required: true, position: 1, description: "User to bump" }
+      - { name: pct,  type: float,  required: true, position: 2, description: "Percentage increase (e.g. 10 = +10%) — use `--` for negative values" }
+    sql: |
+      UPDATE users
+         SET quota_daily  = (quota_daily  * (1 + $pct / 100.0))::integer,
+             quota_yearly = (quota_yearly * (1 + $pct / 100.0))::integer,
+             updated_at   = NOW()
+       WHERE name = $name
 
   report-logs:
     description: "Summarise logs by level between two dates"

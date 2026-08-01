@@ -1,13 +1,51 @@
 # dbctl
 
 `dbctl` is a small Python CLI for **monitoring, controlling, and administering
-multiple databases** through a single declarative config. It supports three
-ways of reaching a database:
+multiple databases** through a single declarative config. It is built for
+operators who manage a **database explosion** — the same application deployed
+across several environments (dev / test / int / prod) and several tenants
+(Germany / USA / India / …) — where administering a row means opening a GUI
+client, navigating a connection tree, opening a tunnel, and clicking through
+to the right schema. `dbctl` replaces that multi-click flow with one command:
+
+```text
+dbctl prod-de increase-quota alice 10 --apply     # bump a user's quota, in prod, Germany
+dbctl prod-us increase-quota alice 10 --apply     # same op, different tenant
+dbctl int-in  doctor                              # healthcheck integration India
+```
+
+Every connection's tunnel (`ssm` / `ssh` / `k8s` / `direct`), credentials,
+safety policy, and introspection queries live in one versioned
+`~/.dbctl/connections.yaml`; every common SQL action lives in one
+`~/.dbctl/operations.yaml`. `dbctl` synthesises one Click subcommand per
+connection × operation, opens the tunnel, runs the SQL with bind parameters,
+writes an audit-log entry, and tears the tunnel down — without you ever
+leaving the terminal.
+
+### Why not DBeaver / a GUI client?
+
+| GUI client (DBeaver, etc.)                          | `dbctl`                                       |
+|-----------------------------------------------------|-----------------------------------------------|
+| Click through a connection tree every time          | `dbctl <conn> <op>` — one command             |
+| Re-establish SSO / SSH per session, often by hand  | Tunnels auto-opened from YAML, SSO re-used    |
+| Ad-hoc SQL with no audit trail                      | Every run appended to `~/.dbctl/history.jsonl` (secrets redacted) |
+| "What can I run here?" is whatever you remember     | Operations are declared + versioned; `--help` lists them |
+| DML is one `Ctrl-Enter` away                        | DML is **dry-run by default** until `--apply`; `--yes` skips the prompt |
+| No cross-DB diff                                     | `dbctl diff user-count prod-de int-de`        |
+
+`dbctl` is **not** a schema browser or a query playground — it deliberately
+has no ad-hoc query command. Declaring operations in YAML keeps "what can be
+run against this DB" discoverable from a versioned file instead of buried in
+your shell history. (For ad-hoc exploration open the tunnel with
+`dbctl tunnel open <conn>` and point your favourite client at the local bind.)
+
+### How it reaches a database
 
 | type     | how                                                            | external deps |
 |----------|----------------------------------------------------------------|---------------|
 | `ssm`    | AWS SSM port-forward through an EC2 bastion to a private host | `aws` CLI on PATH, active SSO session |
 | `ssh`    | Classic `ssh -N -L` port-forward through a bastion             | `ssh` CLI on PATH, an SSH key file |
+| `k8s`    | `kubectl port-forward` to a Service / Pod in a cluster         | `kubectl` CLI on PATH, a valid kubeconfig |
 | `direct` | No tunnel — connect to the upstream host:port directly        | none |
 
 Each connection declares its SQLAlchemy URL scheme (`postgresql+psycopg`,
@@ -88,12 +126,8 @@ multi-connection `diff` commands.
 ```bash
 docker compose up -d
 
-# passwords for the sample config (set them in your shell):
-export DBCTL_PG_PASSWORD=pwd_postgres
-export DBCTL_MY_PASSWORD=pwd_mysql
-export DBCTL_MS_PASSWORD='PwdSqlServer2026!'
-
-# install the sample config
+# install the sample config (uses plaintext passwords out of the box for dev;
+# swap to `password_env: VARNAME` or `prompt: true` for real environments)
 mkdir -p ~/.dbctl
 cp .dbctl/connections.yaml ~/.dbctl/connections.yaml
 cp .dbctl/operations.yaml  ~/.dbctl/operations.yaml
@@ -106,6 +140,7 @@ dbctl pg info row_counts
 dbctl pg list-users 10
 dbctl pg add-user stephen 12 --show-sql        # dry-run (prints SQL)
 dbctl pg add-user stephen 12 --apply --yes     # commit (no prompt)
+dbctl pg increase-quota alice 10 --apply -y    # +10% on alice's quotas
 
 dbctl diff user-count pg my                    # multi-DB diff
 dbctl diff compare-quotas pg my Daily
@@ -133,6 +168,21 @@ dbctl tunnel open pg                           # hold tunnel for ad-hoc psql
 `dbctl init` walks you through adding a new connection interactively and
 writes it back to `~/.dbctl/connections.yaml` — it will test the tunnel +
 healthcheck before saving (for `direct` connections).
+
+### Loader resilience
+
+Each connection is validated **independently**, not as one big
+`ConnectionsFile`. A mis-configured connection (e.g. a reference template
+with all password sources commented out, or a typo'd driver) is skipped with
+a one-line warning on stderr — the rest of the registry still loads so the
+dashboard, `--help`, and the good connections keep working:
+
+```
+connections.yaml: 1 invalid connection skipped:
+  pg-ssm: set 'password', 'password_env' or 'prompt: true' for each connection
+```
+
+`dbctl operations validate` checks `operations.yaml` the same way.
 
 ## Adding an operation
 
@@ -164,9 +214,21 @@ dbctl pg reset-quota alice --apply --yes     # commit
 
 `$name` and `$floor` are rewritten to SQLAlchemy bind-params (`:name`,
 `:floor`) — they are always parameterised, never string-interpolated, so SQL
-injection through a parameter value is not possible. (For *dynamic
-identifiers* such as table names, write one operation per table for now;
-`${var}` identifier interpolation is on the v2 roadmap.)
+injection through a parameter value is not possible. The Postgres cast idiom
+`$name::type` is rewritten to the portable `CAST(:name AS type)` form so the
+same operation YAML works cross-dialect:
+
+```yaml
+sql: |
+  SELECT level, COUNT(*) AS events
+    FROM logs
+   WHERE created_at >= $since::timestamp     # → CAST(:since AS timestamp)
+     AND created_at <  $until::timestamp
+   GROUP BY level
+```
+
+(For *dynamic identifiers* such as table names, write one operation per table
+for now; `${var}` identifier interpolation is on the v2 roadmap.)
 
 See [`docs/operations.md`](docs/operations.md) for the full parameter and
 mode reference.
@@ -217,10 +279,16 @@ Each connection has a `safety` block:
 `dbctl` **confirms before opening the transaction** — saying `N` at the
 prompt leaves the database untouched.
 
-Only `password_env: VARNAME` and `prompt: true` are accepted as DB password
-sources — no plaintext in YAML, no Secrets Manager code (you said your SSO
-session already wraps the secrets you need). Secret-typed operation parameters
-(`type: secret`) are redacted in the audit log.
+DB password sources are mutually exclusive — pick **one** per connection:
+
+| source          | use |
+|-----------------|------|
+| `password: "…"`     | plaintext (local dev only). Don't commit real secrets. |
+| `password_env: VAR` | read from the named environment variable. Recommended for any shared/CI host. |
+| `prompt: true`      | prompt for the DB password interactively each run. Good for break-glass access. |
+
+Secret-typed **operation** parameters (`type: secret`) are redacted in the
+audit log regardless of which DB password source the connection uses.
 
 ## Shell completion
 
@@ -265,11 +333,13 @@ dbctl/
 ```bash
 uv sync --extra dev
 uv run ruff check dbctl tests   # lint
-uv run pytest tests/             # 15 unit tests
-uv run mypy dbctl                 # type-check
+uv run pytest tests/             # ~60 unit tests against in-memory SQLite
+uv run mypy dbctl                # type-check (pre-existing debt; non-blocking in CI)
 ```
 
 The unit tests use an in-memory SQLite database so they run without docker.
+For a live end-to-end smoke test, `docker compose up -d` and follow the
+[quick start](#quick-start-with-the-bundled-docker-compose-fleet) above.
 
 ## Roadmap
 

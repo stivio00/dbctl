@@ -5,6 +5,46 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] — 2026-08-01
+
+### Fixed
+
+- **`$name::type` casts broke psycopg** (the `::type` suffix collides with
+  the bind-param parser). `to_bindparams` now rewrites the Postgres cast
+  idiom to the SQL-standard `CAST(:name AS type)` form, so the same
+  operation YAML works cross-dialect. Parenthesised precision
+  (`$x::numeric(10, 2)`) and schema-qualified types (`$x::pg.text`) are
+  preserved. The bundled `report-logs` operation (which uses
+  `$since::timestamp`) now runs instead of failing with
+  `syntax error at or near ":"`.
+- **`dbctl connections show <alias>`** reported "unknown connection" for a
+  registered alias (e.g. `postgres`) because `connections_show` did a direct
+  dict lookup instead of going through the alias-aware `resolve()`. Now
+  resolves aliases to the canonical connection and dumps it under the
+  canonical name.
+- **`dbctl diff <op> <conn> <unknown>`** crashed with a raw
+  `UnknownConnectionError` traceback. The multi-op callback now catches the
+  `KeyError` and emits a one-line message on stderr with exit code 2.
+- **Negative positional arguments** (e.g.
+  `dbctl pg increase-quota alice -10`) failed with the opaque Click error
+  `No such option '-1'`. Dynamic commands now append a hint pointing at the
+  `--` separator and showing the user's actual token (`-10`).
+
+### Added
+
+- **`increase-quota`** bundled operation — bumps a user's daily and yearly
+  quota by a percentage (positive or negative via `--`), with postgres
+  `::integer` rounding.
+- **README + docs** rewritten to reflect the tool's actual thesis — a
+  one-command replacement for the DBeaver multi-click flow when
+  administering a database explosion (multiple environments × tenants)
+  through SSO + SSH tunnels. Adds a "Why not DBeaver?" comparison, documents
+  the `password` / `password_env` / `prompt` credential sources (the docs
+  previously claimed there was no plaintext-password field, which was
+  wrong), the loader-resilience guarantee (one bad connection no longer
+  nukes the registry), the `$name::type` CAST syntax, and the
+  negative-positional-arg `--` hint.
+
 ## [0.5.2] — 2026-08-01
 
 ### Fixed

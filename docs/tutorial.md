@@ -43,7 +43,7 @@ Run `dbctl` once to confirm it's alive:
 
 ```bash
 ▶ uv run dbctl --version
-dbctl, version 0.1.0
+dbctl, version 0.5.3
 ```
 
 ---
@@ -85,19 +85,14 @@ You should see all three services `healthy`.
 ```
 
 The bundled config has three "live" connections — `pg`, `my`, `ms` — plus
-two reference-only templates — `pg-ssm`, `pg-ssh` — that we'll use in
-section 11.
+three reference-only templates — `pg-ssm`, `pg-k8s`, `pg-ssh` — that we'll
+use in section 11.
 
-The sample config reads DB passwords from environment variables (there is
-no plaintext-password field in dbctl). Export them now:
-
-```bash
-▶ export DBCTL_PG_PASSWORD=pwd_postgres
-▶ export DBCTL_MY_PASSWORD=pwd_mysql
-▶ export DBCTL_MS_PASSWORD='PwdSqlServer2026!'
-```
-
-(These match the values in `docker-compose.yml`.)
+The sample config ships with **plaintext passwords** out of the box so the
+docker fleet "just works" after `cp` — see the `password:` field in
+`~/.dbctl/connections.yaml`. For any real environment swap to
+`password_env: VARNAME` (read from your shell) or `prompt: true` (typed each
+run); the three sources are mutually exclusive.
 
 ---
 

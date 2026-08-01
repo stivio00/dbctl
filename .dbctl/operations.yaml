@@ -21,6 +21,21 @@ operations:
             type         = EXCLUDED.type,
             updated_at   = NOW()
 
+  increase-quota:
+    description: "Increase a user's daily and yearly quota by a percentage"
+    scope: single
+    mode: execute
+    confirm: true
+    parameters:
+      - { name: name, type: string, required: true, position: 1, description: "User to bump" }
+      - { name: pct,  type: float,  required: true, position: 2, description: "Percentage increase (e.g. 10 = +10%)" }
+    sql: |
+      UPDATE users
+         SET quota_daily  = (quota_daily  * (1 + $pct / 100.0))::integer,
+             quota_yearly = (quota_yearly * (1 + $pct / 100.0))::integer,
+             updated_at   = NOW()
+       WHERE name = $name
+
   list-users:
     description: "List users (top N)"
     scope: single

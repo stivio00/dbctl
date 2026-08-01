@@ -14,18 +14,41 @@ from sqlalchemy.exc import SQLAlchemyError
 if TYPE_CHECKING:
     from dbctl.config import Operation
 
-_PLACEHOLDER = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)")
+# A SQL type name after `$name::`. Allows schema-qualified names
+# (`pg.text`) and parenthesised precision/length (`varchar(255)`,
+# `numeric(10, 2)`, `timestamp(6)`), but NOT surrounding spaces or
+# trailing operators (so `$x::text || $y::int` rewrites cleanly).
+_TYPE = r"[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:\([^)]*\))?"
+_PLACEHOLDER = re.compile(rf"\$([a-zA-Z_][a-zA-Z0-9_]*)(?:::({_TYPE}))?")
+
+
+def _replace(match: re.Match[str]) -> str:
+    name = match.group(1)
+    cast = match.group(2)
+    if cast:
+        # `$name::type` (Postgres idiom) — emit the SQL-standard
+        # `CAST(:name AS type)` form so the rewritten SQL works on
+        # every dialect (psycopg rejects `:name::type` because the
+        # `::type` suffix collides with its bind param syntax).
+        return f"CAST(:{name} AS {cast})"
+    return f":{name}"
 
 
 def to_bindparams(sql: str) -> str:
     """Rewrite ``$name`` → ``:name`` while leaving everything else (literals,
     operators, dollar-quoting edge cases) untouched.
 
+    Also handles the Postgres cast idiom ``$name::type`` by rewriting it to
+    the portable ``CAST(:name AS type)`` form. This is necessary because
+    SQLAlchemy/psycopg rejects ``:name::type`` (the trailing ``::type``
+    collides with the bind param name parser), and because ``CAST`` is
+    SQL-standard so the same operation YAML works cross-dialect.
+
     We deliberately do **not** touch ``$$ ... $$`` dollar-quoted strings: those
     are matched only when the char after ``$`` is a digit (which is an invalid
     bindparam name anyway), so they survive intact.
     """
-    return _PLACEHOLDER.sub(r":\1", sql)
+    return _PLACEHOLDER.sub(_replace, sql)
 
 
 @dataclass
