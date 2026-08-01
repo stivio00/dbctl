@@ -1,0 +1,95 @@
+# Sample dbctl operations.
+# Each operation is a parameterised SQL block declaring its inputs; the CLI
+# builds one Click option per parameter (positional + keyword).
+
+operations:
+  add-user:
+    description: "Create or update an application user (Daily quota by default)"
+    scope: single
+    mode: execute
+    confirm: true
+    parameters:
+      - { name: name,  type: string,  required: true,  position: 1, description: "Unique user name" }
+      - { name: quota, type: integer, required: true,  position: 2, description: "Daily quota (used as daily limit)" }
+      - { name: type,  type: string,  default: "Daily", position: 3, description: "Account type" }
+    sql: |
+      INSERT INTO users (name, quota_daily, quota_yearly, type)
+        VALUES ($name, $quota, $quota * 365, $type)
+      ON CONFLICT (name) DO UPDATE
+        SET quota_daily  = EXCLUDED.quota_daily,
+            quota_yearly = EXCLUDED.quota_yearly,
+            type         = EXCLUDED.type,
+            updated_at   = NOW()
+
+  list-users:
+    description: "List users (top N)"
+    scope: single
+    mode: fetch
+    output: table
+    parameters:
+      - { name: limit, type: integer, default: 10, position: 1 }
+    sql: |
+      SELECT name, quota_daily, quota_yearly, type, is_active
+      FROM users
+      ORDER BY quota_daily DESC
+      LIMIT $limit
+
+  find-user:
+    description: "Find a user by name prefix"
+    scope: single
+    mode: fetch
+    parameters:
+      - { name: prefix, type: string, required: true, position: 1 }
+    sql: |
+      SELECT name, quota_daily, is_active FROM users WHERE name ILIKE $prefix || '%'
+
+  report-logs:
+    description: "Summarise logs by level between two dates"
+    scope: single
+    mode: fetch
+    output: table
+    parameters:
+      - { name: since, type: string, required: true, position: 1, description: "ISO date (e.g. 2025-01-01)" }
+      - { name: until, type: string, required: true, position: 2, description: "ISO date" }
+    sql: |
+      SELECT level, COUNT(*) AS events, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
+      FROM logs
+      WHERE created_at >= $since::timestamp
+        AND created_at <  $until::timestamp
+      GROUP BY level
+      ORDER BY events DESC
+
+# --------------------------------------------------------------------------- #
+# multi-database operations - invoked as `dbctl diff A B --op <name>`
+# --------------------------------------------------------------------------- #
+  user-count:
+    description: "Compare user counts between two databases"
+    scope: multi
+    mode: diff
+    roles: [src, trg]
+    queries:
+      src: "SELECT 'users' AS t, COUNT(*) AS n FROM users"
+      trg: "SELECT 'users' AS t, COUNT(*) AS n FROM users"
+    diff:
+      key: [t]
+      show: [n]
+
+  compare-quotas:
+    description: "Side-by-side quota summary across two databases"
+    scope: multi
+    mode: diff
+    roles: [src, trg]
+    parameters:
+      - { name: period, type: string, default: "Daily", position: 1 }
+    queries:
+      src: |
+        SELECT period AS t, COUNT(*) AS n_rows, SUM(limit_value) AS total_limit
+        FROM quotas JOIN users ON quotas.user_id = users.id
+        WHERE period = $period GROUP BY period
+      trg: |
+        SELECT period AS t, COUNT(*) AS n_rows, SUM(limit_value) AS total_limit
+        FROM quotas JOIN users ON quotas.user_id = users.id
+        WHERE period = $period GROUP BY period
+    diff:
+      key: [t]
+      show: [n_rows, total_limit]

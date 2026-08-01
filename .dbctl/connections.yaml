@@ -1,0 +1,150 @@
+# Sample dbctl config for the docker-compose test fleet in this repo.
+#   cp .dbctl/connections.yaml ~/.dbctl/connections.yaml
+#   cp .dbctl/operations.yaml  ~/.dbctl/operations.yaml
+# This file points at the three databases started by `docker compose up -d`.
+
+connections:
+  pg:
+    description: "Postgres dev (docker compose)"
+    aliases: [postgres]
+    type: direct
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_PG_PASSWORD
+    direct: { host: 127.0.0.1, port: 5433 }
+    healthcheck: { query: "SELECT 1", timeout_seconds: 5 }
+    info:
+      - name: row_counts
+        description: "Top tables by row count"
+        query: |
+          SELECT relname AS table, n_live_tup AS rows
+          FROM pg_stat_user_tables
+          ORDER BY n_live_tup DESC LIMIT 10
+      - name: top_users
+        query: "SELECT name, quota_daily, is_active FROM users ORDER BY quota_daily DESC LIMIT 10"
+    safety:
+      confirm: true
+      read_only: false
+
+  my:
+    description: "MySQL dev (docker compose)"
+    aliases: [mysql]
+    type: direct
+    driver: mysql+pymysql
+    database: app
+    username: app_admin
+    password_env: DBCTL_MY_PASSWORD
+    direct: { host: 127.0.0.1, port: 3307 }
+    healthcheck: { query: "SELECT 1" }
+    info:
+      - name: top_users
+        query: "SELECT name, quota_daily, is_active FROM users ORDER BY quota_daily DESC LIMIT 10"
+    safety:
+      confirm: true
+      read_only: false
+
+  ms:
+    description: "SQL Server dev (docker compose)"
+    aliases: [mssql]
+    type: direct
+    driver: mssql+pyodbc
+    database: app
+    username: sa
+    password_env: DBCTL_MS_PASSWORD
+    # SQL Server needs a configured ODBC driver on the host. Use pyodbc's
+    # connection string by overriding connect_args in your own config:
+    #   connect_args: { driver: "ODBC Driver 18 for SQL Server", TrustServerCertificate: "yes" }
+    direct: { host: 127.0.0.1, port: 1434 }
+    healthcheck: { query: "SELECT 1" }
+    info:
+      - name: top_users
+        query: "SELECT TOP 10 name, quota_daily, is_active FROM dbo.users ORDER BY quota_daily DESC"
+    safety:
+      confirm: true
+      read_only: true
+
+  # --------------------------------------------------------------------- #
+  # Reference templates for tunneled Postgres connections.
+  # These are NOT meant to connect to anything in the docker compose fleet;
+  # they are full-blown reference examples you can copy + edit in your own
+  # ~/.dbctl/connections.yaml. They are marked read_only so accidental runs
+  # are safe.
+  # --------------------------------------------------------------------- #
+
+  # AWS SSM port-forward through an EC2 bastion to a private RDS Postgres.
+  # Requires the `aws` CLI on PATH with an active SSO session in
+  # ~/.aws/cache/sso/*.json for the named `profile`.
+  pg-ssm:
+    description: "REFERENCE: Postgres via AWS SSM (edit before using)"
+    aliases: []
+    type: ssm
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_PG_SSM_PASSWORD
+    ssm:
+      region: eu-west-1
+      profile: prod                       # AWS SSO profile; tokens in ~/.aws/cache
+      # Resolve the bastion at tunnel-open time via aws ec2 describe-instances.
+      # Useful when the bastion is in an ASG / is replaced often — the tag
+      # set stays stable while the instance id rotates.
+      bastion_tags: { Name: bastion-prod, Env: prod }
+      # alt: hardcode the id and skip the ec2:DescribeInstances call:
+      # bastion_instance_id: i-0abcd1234ef
+      remote_host: mydb.xxxx.eu-west-1.rds.amazonaws.com
+      remote_port: 5432
+      local_port: 0                       # 0 = dbctl picks a free local port
+      ssm_document: AWS-StartPortForwardingSessionToRemoteHost
+    healthcheck: { query: "SELECT 1" }
+    info:
+      - name: row_counts
+        description: "Top tables by row count"
+        query: |
+          SELECT relname AS table, n_live_tup AS rows
+          FROM pg_stat_user_tables
+          ORDER BY n_live_tup DESC LIMIT 10
+      - name: active_conns
+        description: "Active backend connections"
+        query: "SELECT count(*) FROM pg_stat_activity"
+      - name: db_size
+        description: "Database size in bytes"
+        query: "SELECT pg_database_size(current_database()) AS bytes"
+    safety:
+      confirm: true
+      read_only: true
+      allowed_operations: []
+
+  # Classic SSH port-forward through a bastion host to an internal Postgres.
+  # Requires the `ssh` CLI on PATH and a working key file at `identity`
+  # (tilde is expanded). The operator's ~/.ssh/config + agent keep working.
+  pg-ssh:
+    description: "REFERENCE: Postgres via SSH tunnel (edit before using)"
+    aliases: []
+    type: ssh
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_PG_SSH_PASSWORD
+    ssh:
+      host: bastion.example.com           # reachable from your workstation
+      user: ec2-user
+      identity: ~/.ssh/id_rsa             # ~ is expanded by dbctl
+      remote_host: db.internal            # the database's own hostname, as the bastion sees it
+      remote_port: 5432
+      local_port: 0                       # 0 = dbctl picks a free local port
+      port: 22                            # bastion's SSH port
+    healthcheck: { query: "SELECT 1" }
+    info:
+      - name: row_counts
+        description: "Top tables by row count"
+        query: |
+          SELECT relname AS table, n_live_tup AS rows
+          FROM pg_stat_user_tables
+          ORDER BY n_live_tup DESC LIMIT 10
+      - name: active_conns
+        query: "SELECT count(*) FROM pg_stat_activity"
+    safety:
+      confirm: true
+      read_only: true
+      allowed_operations: []
