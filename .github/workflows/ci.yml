@@ -62,14 +62,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # requires-python = ">=3.11" in pyproject.toml
-        python-version: ["3.11", "3.12", "3.13"]
+        # requires-python = ">=3.12" in pyproject.toml
+        python-version: ["3.12", "3.13"]
         os: [ubuntu-latest, macos-latest]
         exclude:
-          # Trim the matrix: macos + 3.11 + 3.13 stay, but skip 3.13 on
-          # mac to keep minutes in check (Linux covers the linux/3.13 case).
+          # Trim the matrix: skip 3.13 on mac to keep minutes in check
+          # (Linux covers the linux/3.13 case).
           - os: macos-latest
-            python-version: "3.11"
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
