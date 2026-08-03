@@ -355,7 +355,7 @@ dbctl replay-users pg my --batch-size 200
 
 Operations are global, but the SQL they contain is dialect-specific
 (`ON CONFLICT` is PostgreSQL; `ON DUPLICATE KEY UPDATE` is MySQL; `MERGE` is
-SQL Server). For v1 the workaround is to either:
+SQL Server). The workaround is to either:
 
 1. write **portable** SQL (e.g. `DELETE` + `INSERT` rather than upsert syntax)
    for ops you want to run on multiple dialects, or

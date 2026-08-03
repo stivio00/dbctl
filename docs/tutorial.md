@@ -43,7 +43,7 @@ Run `dbctl` once to confirm it's alive:
 
 ```bash
 ▶ uv run dbctl --version
-dbctl, version 0.5.3
+dbctl, version 0.6.0
 ```
 
 ---
@@ -369,9 +369,9 @@ user-count:
     show: [n]
 ```
 
-Multi-scope operations surface as **verb-first** top-level groups — one
-per distinct `mode`. The CLI auto-builds `dbctl diff <op> SRC TRG` from the
-declared `roles`:
+Multi-scope operations surface as **operation-first** top-level commands
+(preferred since v0.6.0) — `dbctl <op> SRC TRG`. The deprecated verb-first
+form `dbctl diff <op> SRC TRG` still works as an alias:
 
 ```bash
 ▶ uv run dbctl diff --help
@@ -457,7 +457,7 @@ Save and quit. Confirm it loads:
 
 ```bash
 ▶ uv run dbctl operations validate
-all 7 operations valid
+all 12 operations valid
 ```
 
 Run it:
@@ -680,6 +680,7 @@ operation, and connected to a real RDS Postgres through an SSM bastion.
   parameter type, and the full safety check matrix.
 - [`DESIGN.md`](DESIGN.md) — why the CLI is dynamic, why confirms happen
   before transactions, why placeholder rewriting is regex-based.
-- [`CHANGELOG.md`](../CHANGELOG.md) — what's in 0.1.0 and what's planned
-  for 0.2 (upsert mode, multi-statement scripts, parallel multi-DB
-  tunnels, identifier interpolation).
+- [`CHANGELOG.md`](../CHANGELOG.md) — what's in 0.6.0 (multi-DB copy/sync/
+  validate/replay + table_counts + operation-first CLI) and what's planned
+  for 0.7 (bidirectional sync, identifier interpolation, multi-statement
+  scripts).

@@ -104,7 +104,8 @@ uv run dbctl history list
 
 ## Key design decisions to remember
 
-- **Verb-first multi-DB**: `dbctl diff user-count pg my` (NOT `--src/--trg`)
+- **Operation-first multi-DB** (preferred since v0.6.0): `dbctl user-count pg my`
+  — the deprecated verb-first alias `dbctl diff user-count pg my` still works
 - **Confirm before transaction**: `_execute_single` calls `confirm_or_abort`
   *before* `with engine.begin():` so N / Ctrl-C leaves the DB untouched
 - **Dry-run by default** for DML on `safety.confirm: true` connections;

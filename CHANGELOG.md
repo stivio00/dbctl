@@ -5,6 +5,51 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-08-03
+
+### Changed
+
+- **Renamed `quota` → `credits`** across all docs, examples, sample
+  operations, seed SQL (postgres/mysql/mssql), and test fixtures. The
+  table `quotas` is now `credits`, columns `quota_daily` / `quota_yearly`
+  are `credits_daily` / `credits_yearly`, operations `increase-quota` /
+  `compare-quotas` / `reset-quota` are `increase-credits` /
+  `compare-credits` / `reset-credits`. Historical CHANGELOG entries
+  retain the old names.
+- **Replaced country-based tenant examples** (Germany / USA / India,
+  `prod-de` / `prod-us` / `int-in`) with generic `tenant1` / `tenant2` /
+  `tenant3` in the README intro.
+- **Docs audit**: fixed 14 stale references across README, tutorial,
+  operations.md, DESIGN.md, and SESSION_STATE.md — wrong install path
+  (`uv tool install ./dbctl` → `.`), stale version (0.5.3 → 0.6.0),
+  stale test count (15/26 → ~80), stale operation count (7 → 12),
+  stale "verb-first" framing (now operation-first preferred), missing
+  `password` credential source in DESIGN.md, stale "v1" / "v2"
+  reservation notes, stale SQL Server note.
+
+### Fixed
+
+- **`run_copy` skipped-count math** for `on_conflict: skip` was
+  double-counting because `skipped += len(chunk) - inserted` used the
+  cumulative `inserted` accumulator instead of the per-batch return.
+  Each batch now computes its own delta.
+- **`_insert_batch` rowcount** always returned `len(rows)` regardless of
+  how many rows the driver actually wrote — so `INSERT IGNORE` /
+  `ON CONFLICT DO NOTHING` reported every duplicate as inserted. Now uses
+  `cursor.rowcount` when available.
+- **MySQL schema-qualified introspection** — `_introspect_tables` treated
+  MySQL's current database as a non-default schema, breaking
+  `validate-schema` (0 tables compared). Fixed by including the engine's
+  own `url.database` in the default-schema set.
+- **SQLAlchemy errors escaped as tracebacks** — the multi-op dispatch
+  and single-op execute paths now catch `SQLAlchemyError` and render via
+  `fmt_db_error`, stripping the driver-class prefix and
+  `Background on this error` trailer.
+- **YAML parse errors rendered as multi-line dumps** — both loaders now
+  collapse `YAMLError` into one friendly line with line:column prefix.
+- **`operations validate` dumped raw `ValidationError`** — now catches
+  `OperationsFileError` and prints per-op friendly lines.
+
 ## [0.6.0] — 2026-08-03
 
 ### Added

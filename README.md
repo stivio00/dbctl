@@ -102,10 +102,9 @@ config file, instead of buried in shell history.
 
 ```bash
 # Install dbctl as a tool (all dialect drivers ship as dependencies)
-uv tool install ./dbctl
+uv tool install .
 
 # Or hack locally:
-cd dbctl
 uv sync --extra dev
 uv pip install -e .
 uv run dbctl --help
@@ -164,8 +163,9 @@ dbctl tunnel open pg                           # hold tunnel for ad-hoc psql
 ```
 
 > SQL Server needs an installed ODBC driver on the host (`ODBC Driver 18 for
-> SQL Server`). The sample `ms` connection is `read_only: true` and is only
-> used for the `diff` operations against the smaller `users` table.
+> SQL Server`). The sample `ms` connection is `read_only: true` so it can be
+> used for `diff` / `validate` / `table-counts` but not for `copy` / `sync` /
+> `replay` (which write to the target).
 
 ## Config layout
 
@@ -310,8 +310,9 @@ echo 'eval "$(_DBCTL_COMPLETE=bash_source dbctl)"' >> ~/.bashrc
 # similarly for zsh / fish
 ```
 
-Completion then covers connection names, operation names, and (for multi-DB
-verbs) `dbctl diff <TAB>` lists the available operations.
+Completion then covers connection names, operation names, and multi-DB
+operation names (`dbctl <op> <TAB>` lists connections; `dbctl diff <TAB>`
+lists the deprecated verb-first aliases).
 
 ## Project layout
 
@@ -346,7 +347,7 @@ dbctl/
 uv sync --extra dev
 make help            # list all Makefile targets
 make check           # lint + unit tests (the pre-commit gate)
-make test            # unit tests (~75 tests, in-memory SQLite, no docker)
+make test            # unit tests (~80 tests, in-memory SQLite, no docker)
 make typecheck       # mypy strict (pre-existing debt; non-blocking)
 make smoke           # docker compose up + dbctl doctor against the fleet
 make build           # wheel + sdist via uv

@@ -84,9 +84,9 @@ loaded at runtime. The solution is two custom `click.Group` subclasses:
 1. **`main`** (the root group) has its `list_commands` / `get_command`
    monkey-patched (`_root_list` / `_root_get`). When Click asks for a name,
    the resolver first checks the static commands, then the loaded connections
-   (and their aliases — `prod` → `db1`), finally the multi-DB verbs
-   (`diff` / `compare` / `sync`) — one group per distinct `OpMode` seen in
-   the registry.
+   (and their aliases — `prod` → `db1`), finally the multi-DB operations
+   (operation-first top-level commands) and the deprecated verb-first
+   groups (`diff` / `compare` / `copy` / `sync` / `validate` / `replay`).
 2. **`LazyConnGroup`** is constructed per resolved connection. Its
    `list_commands` merges the static per-connection commands
    (`health` / `info` / `history` / `again`) with every single-scope
@@ -99,23 +99,20 @@ loaded at runtime. The solution is two custom `click.Group` subclasses:
 This means a brand-new operation added to `operations.yaml` shows up under
 `dbctl <conn> <TAB>` and in `dbctl <conn> --help` with no code change.
 
-## Multi-DB operations: verb-first
+## Multi-DB operations: operation-first (preferred) + verb-first (deprecated)
 
 A multi-scope operation declares `roles` (e.g. `[src, trg]`) and one `queries`
-entry per role. The CLI builds **one top-level group per distinct `mode`** —
-`diff`, `compare`, `sync` — and one subcommand per operation under it. The
-role names are the **leading positional arguments** of each subcommand,
-matching `roles` in declared order:
+entry per role. Since v0.6.0 the CLI builds **one top-level command per
+multi-scope operation** — `dbctl <op> SRC TRG` — in addition to the
+deprecated verb-first groups (`dbctl diff <op> SRC TRG`, `dbctl copy <op>
+SRC TRG`, …). The role names are the **leading positional arguments** of
+each subcommand, matching `roles` in declared order:
 
 ```bash
-dbctl diff user-count pg my                     # roles [src, trg]
-dbctl diff compare-credits pg my Daily           # + the op's own positional
+dbctl user-count pg my                          # preferred (operation-first)
+dbctl diff user-count pg my                     # deprecated alias (verb-first)
+dbctl compare-credits pg my Daily               # + the op's own positional
 ```
-
-This is verb-first (matching `git diff A B`) and lets the op's own parameters
-be declared per-op (so `--period` for `compare-credits` is its real flag, not a
-shared one). `reports.render_side_by_side` joins the two result sets on
-`diff.key` and renders rows of `key | val_a | val_b | Δ`.
 
 ## Placeholder semantics
 
@@ -205,8 +202,9 @@ of `position: 1` would otherwise make the parameter keyword-only silently.
 - It is **not an ORM or migration tool**. No models, no Alembic. Operations
   are raw SQL parameterised through SQLAlchemy `text()`.
 - It is **not an ad-hoc REPL**. To run SQL you declare it.
-- It is **not a secrets manager**. The only credential sources are
-  `password_env: VARNAME` and `prompt: true`.
+- It is **not a secrets manager**. The credential sources are
+  `password` (plaintext, local dev), `password_env: VARNAME`, and
+  `prompt: true`.
 - It is **not a genericdiff for DDL**. The `diff` mode joins *result sets* on
   a key — it diffs `SELECT COUNT(*) FROM users` between two DBs, not the
   schema of `users` itself.
