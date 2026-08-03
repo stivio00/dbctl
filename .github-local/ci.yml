@@ -62,14 +62,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # requires-python = ">=3.12" in pyproject.toml
-        python-version: ["3.12", "3.13"]
+        # requires-python = ">=3.11" in pyproject.toml
+        python-version: ["3.11", "3.12", "3.13"]
         os: [ubuntu-latest, macos-latest]
         exclude:
-          # Trim the matrix: skip 3.13 on mac to keep minutes in check
-          # (Linux covers the linux/3.13 case).
+          # Trim the matrix: macos + 3.11 + 3.13 stay, but skip 3.13 on
+          # mac to keep minutes in check (Linux covers the linux/3.13 case).
           - os: macos-latest
-            python-version: "3.12"
+            python-version: "3.11"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -165,43 +165,3 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
-  # ----------------------------------------------------------------------- #
-  # release — create a GitHub Release from the tagged commit, with
-  # auto-generated release notes. Runs after publish so the PyPI link
-  # is included in the release body. Only fires on v* tags.
-  # ----------------------------------------------------------------------- #
-  release:
-    needs: [publish]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: write  # needed to create a release
-    steps:
-      - uses: actions/checkout@v4
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - name: Extract CHANGELOG section for this version
-        id: changelog
-        run: |
-          # Extract the section between ## [<version>] and the next ## [ or EOF
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          CHANGELOG=$(awk -v ver="## [${VERSION}]" '
-            $0 ~ ver { found=1; next }
-            found && /^## \[/ { exit }
-            found { print }
-          ' CHANGELOG.md)
-          # Save to a file to preserve multiline in the release body
-          printf '%s' "$CHANGELOG" > /tmp/release_notes.md
-          echo "Got $(wc -l < /tmp/release_notes.md) lines of changelog"
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body_path: /tmp/release_notes.md
-          draft: false
-          prerelease: false
-          generate_release_notes: false
