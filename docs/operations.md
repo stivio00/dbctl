@@ -282,7 +282,7 @@ cross-engine migration needs, without writing a custom script:
 
   `rstrip` exists specifically for the SQL Server → PostgreSQL case: SQL
   Server's default collation treats `'abc'` and `'abc '` as equal, so a
-  column like `model_clean` can accumulate trailing padding that never
+  column like `notes` can accumulate trailing padding that never
   breaks a lookup on the source — until it's copied byte-exact into a
   target whose collation *is* whitespace-sensitive, at which point every
   padded row silently stops matching.
@@ -290,17 +290,17 @@ cross-engine migration needs, without writing a custom script:
 ```yaml
 operations:
   copy-lookup-tables:
-    description: "Migrate DE-test lookup tables (SQL Server) → India Postgres"
+    description: "Migrate legacy lookup tables (SQL Server) -> Postgres"
     scope: multi
     mode: copy
     roles: [src, trg]
     copy_spec:
       batch_size: 10000
-      tables: [ce_repair_cost_lookup_data, replacement_lookup_data]
+      tables: [orders, order_items]
       exclude_columns: [Id]              # source IDENTITY column; trg generates its own
       transforms:
-        model_clean: rstrip              # trailing-space padding from src collation
-        Manufacturer: rstrip
+        notes: rstrip              # trailing-space padding from src collation
+        category: rstrip
 ```
 
 ```bash
@@ -329,12 +329,12 @@ dbctl copy-lookup-tables mssql pg --validate-data
 
 ```text
 pre-flight: scanning src rows against trg's column constraints; nothing will be written yet
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ table                          ┃ column      ┃ kind     ┃ row ┃ detail                      ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ replacement_lookup_data        │ Search_Manu │ not_null │ 482 │ NULL value for a NOT NULL   │
-│                                │             │          │     │ column                      │
-└────────────────────────────────┴─────────────┴──────────┴─────┴─────────────────────────────┘
+┏━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ table       ┃ column ┃ kind     ┃ row ┃ detail                      ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ order_items │ region │ not_null │ 482 │ NULL value for a NOT NULL   │
+│             │        │          │     │ column                      │
+└─────────────┴────────┴──────────┴─────┴─────────────────────────────┘
 1 violation(s) found — copy aborted, nothing was written
 ```
 
@@ -354,8 +354,8 @@ row range that reproduces the failure, and reports the driver's
 root-cause error instead of the full wrapped SQLAlchemy exception:
 
 ```text
-Error: table 'ce_repair_cost_lookup_data': insert failed at row 2847 of this batch:
-duplicate key value violates unique constraint "ce_repair_cost_lookup_data_pkey"
+Error: table 'orders': insert failed at row 2847 of this batch:
+duplicate key value violates unique constraint "orders_pkey"
 ```
 
 Disable it with `--no-diagnose-failures` (or `diagnose_failures: false` in
