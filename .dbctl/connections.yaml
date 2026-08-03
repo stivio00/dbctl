@@ -101,6 +101,7 @@ connections:
       remote_port: 5432
       local_port: 0                       # 0 = dbctl picks a free local port
       ssm_document: AWS-StartPortForwardingSessionToRemoteHost
+      # disable_automatic_sso_login: false    # true = never auto-run `aws sso login`
     healthcheck: { query: "SELECT 1" }
     info:
       - name: row_counts

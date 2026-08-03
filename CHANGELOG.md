@@ -5,6 +5,25 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] — 2026-08-03
+
+### Added
+
+- **Automatic SSO session refresh for SSM tunnels** — before opening an
+  SSM tunnel, dbctl checks the AWS SSO token cache
+  (`~/.aws/sso/cache/<sha256(profile)>.json`). If the token is missing
+  or expired, it automatically runs `aws sso login --profile <profile>`
+  (which opens the browser for SSO authentication). Once the user
+  authenticates, the tunnel opens seamlessly. This eliminates the
+  "every morning" login chore — on day 1 you authenticate once, and
+  the token is reused until it expires; when it does, dbctl detects it
+  and triggers the browser login automatically.
+- **`ssm.disable_automatic_sso_login`** config field — set to `true` to
+  disable the automatic `aws sso login` trigger. dbctl will instead raise
+  a clean error telling you to run `aws sso login --profile <profile>`
+  by hand. Useful for operators who manage their SSO session separately
+  (shell wrapper, cron job, etc.) or in CI where no browser is available.
+
 ## [0.6.4] — 2026-08-03
 
 ### Added

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import atexit
+import hashlib
 import json
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 
 from rich.console import Console
 
@@ -12,6 +15,111 @@ from dbctl.config import SsmTunnel as _Conn
 from dbctl.tunnels.base import _terminate, find_free_port, wait_local_open
 
 _console = Console(stderr=True)
+
+
+def _sso_cache_path(profile: str) -> Path:
+    """Return the AWS SSO token cache file for the given profile.
+
+    AWS caches SSO tokens at ``~/.aws/sso/cache/<sha256(profile)>.json``
+    (the hash is SHA-256 of the profile name, hex-encoded). Each file
+    contains ``accessToken`` + ``expiresAt`` (ISO 8601 UTC).
+    """
+    key = hashlib.sha256(profile.encode()).hexdigest()
+    return Path.home() / ".aws" / "sso" / "cache" / f"{key}.json"
+
+
+def _sso_token_is_valid(profile: str) -> bool:
+    """Check whether the SSO token for ``profile`` exists and hasn't expired.
+
+    Returns ``True`` when the token is valid (or when the profile has no
+    SSO token cached but we determine it's not an SSO profile — e.g. a
+    plain access-key profile). Returns ``False`` only when a token file
+    exists but is past its ``expiresAt`` timestamp, or when no token file
+    exists at all (which means the user needs to log in).
+    """
+    cache_file = _sso_cache_path(profile)
+    if not cache_file.exists():
+        return False
+    try:
+        data = json.loads(cache_file.read_text())
+    except (json.JSONDecodeError, OSError):
+        return False
+    expires_str = data.get("expiresAt")
+    if not expires_str:
+        return False
+    # AWS uses ISO 8601 with 'Z' suffix: "2026-08-03T12:34:56Z"
+    try:
+        expires_dt = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    now = datetime.now(UTC)
+    # 60-second skade so we don't race the expiry window
+    now = now.replace(microsecond=0)
+    return expires_dt > now
+
+
+def _ensure_sso_session(profile: str, *, disable_automatic_sso_login: bool = False) -> None:
+    """Ensure the AWS SSO session for ``profile`` is active.
+
+    * If the cached token is valid → return immediately (no-op).
+    * If the token is missing or expired and
+      ``disable_automatic_sso_login`` is ``False`` → run ``aws sso login
+      --profile <profile>`` interactively. This opens the browser for
+      SSO authentication; the user clicks through once and the token
+      is refreshed in ``~/.aws/sso/cache/``.
+    * If the token is missing/expired and
+      ``disable_automatic_sso_login`` is ``True`` → raise a clean
+      ``RuntimeError`` telling the user to run ``aws sso login`` by
+      hand. This is for operators who prefer to manage their SSO
+      session separately (e.g. via a shell wrapper or a cron job).
+    * If no ``profile`` is set on the connection → return (the user
+      is using default credentials, env vars, or an access-key profile;
+      we don't interfere).
+
+    This is designed to be **transparent**: on a fresh morning when the
+    overnight token expired, ``dbctl`` detects it automatically, triggers
+    the browser login, and continues with the tunnel open — no manual
+    ``aws sso login`` step needed beforehand.
+    """
+    if not profile:
+        return  # no SSO profile configured; let AWS handle creds its own way
+
+    if _sso_token_is_valid(profile):
+        return  # token still good
+
+    if disable_automatic_sso_login:
+        raise RuntimeError(
+            f"SSO token for profile {profile!r} is missing or expired, and "
+            f"'disable_automatic_sso_login: true' is set on this connection. "
+            f"Run `aws sso login --profile {profile}` manually, then re-run dbctl."
+        )
+
+    _console.print(f"[cyan]SSO token for profile {profile!r} is missing or expired.[/cyan]")
+    _console.print(f"[dim]Running `aws sso login --profile {profile}` — a browser window will open...[/dim]")
+
+    cmd = ["aws", "sso", "login", "--profile", profile]
+    try:
+        result = subprocess.run(cmd, check=False, timeout=300)  # 5 min cap
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "the `aws` CLI was not found on PATH — install it before opening an SSM tunnel"
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("aws sso login timed out (5 min). Re-run when ready.") from e
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"`aws sso login --profile {profile}` failed (exit {result.returncode}). "
+            f"Re-authenticate and try again."
+        )
+
+    # Verify the token was actually written
+    if not _sso_token_is_valid(profile):
+        raise RuntimeError(
+            f"SSO login completed but no valid token found for profile {profile!r}. "
+            f"Check ~/.aws/sso/cache/ or run `aws sso login --profile {profile}` manually."
+        )
+    _console.print(f"[green]SSO session refreshed for profile {profile!r}.[/green]")
 
 
 def _resolve_bastion_id(conn: _Conn) -> str:
@@ -85,6 +193,10 @@ class SsmTunnel:
         self._proc: subprocess.Popen | None = None
 
     def __enter__(self) -> int:
+        _ensure_sso_session(
+            self.conn.profile,
+            disable_automatic_sso_login=self.conn.disable_automatic_sso_login,
+        )
         target = _resolve_bastion_id(self.conn)
         params = {
             "host": [self.conn.remote_host],

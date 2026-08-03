@@ -113,6 +113,7 @@ ssm:
   remote_port: 5432
   local_port: 0                               # 0 = dbctl picks a free local port
   ssm_document: AWS-StartPortForwardingSessionToRemoteHost
+  disable_automatic_sso_login: false          # true = never auto-run `aws sso login`
 ```
 
 - `bastion_instance_id` is used directly as the SSM `--target`.
@@ -121,6 +122,13 @@ ssm:
 - `local_port: 0` makes `dbctl` discover a free port *before* invoking the
   SSM document — there's no API to read back the port SSM auto-picks, so
   pre-discovery avoids the race entirely.
+- `disable_automatic_sso_login: true` — by default dbctl checks the SSO
+  token cache (`~/.aws/sso/cache/`) before opening the tunnel; if the token
+  is missing or expired it automatically runs `aws sso login --profile
+  <profile>` (which opens a browser window for SSO authentication). Set
+  this to `true` if you prefer to manage your SSO session manually — dbctl
+  will instead raise a clean error telling you to run `aws sso login` by
+  hand.
 - The subprocess is terminated cleanly on exit; an `atexit` fallback covers
   hard crashes.
 

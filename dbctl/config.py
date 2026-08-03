@@ -101,6 +101,7 @@ class SsmTunnel(BaseModel):
     remote_port: int = 5432
     local_port: int = 0  # 0 = auto-pick free port
     ssm_document: str = "AWS-StartPortForwardingSessionToRemoteHost"
+    disable_automatic_sso_login: bool = False  # if true, never auto-run `aws sso login`
 
     @model_validator(mode="after")
     def _check(self) -> SsmTunnel:
