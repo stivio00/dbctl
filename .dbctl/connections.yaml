@@ -226,3 +226,56 @@ connections:
     safety:
       confirm: true
       read_only: true
+
+  # --------------------------------------------------------------------- #
+  # Oracle, SQLite, DuckDB reference templates.
+  # --------------------------------------------------------------------- #
+
+  # Oracle Database — oracledb thin mode (pure Python, no Instant Client).
+  # Use `database:` for the service name (or SID). Healthcheck uses
+  # `SELECT 1 FROM DUAL` which is the Oracle convention.
+  prod-oracle:
+    description: "REFERENCE: Oracle via oracledb thin mode (edit before using)"
+    aliases: []
+    type: direct
+    driver: oracle+oracledb
+    database: ORCLPDB1
+    username: app_admin
+    password: "<set-me>"
+    direct: { host: db.internal, port: 1521 }
+    healthcheck: { query: "SELECT 1 FROM DUAL", timeout_seconds: 10 }
+    safety:
+      confirm: true
+      read_only: true
+
+  # Local SQLite — file-based, no host/port needed (but config schema
+  # requires a `direct:` block). Use `url:` mode for a cleaner config:
+  #   url: "sqlite:////absolute/path/to/mydata.db"
+  local-sqlite:
+    description: "REFERENCE: Local SQLite (edit path before using)"
+    aliases: []
+    type: direct
+    driver: sqlite
+    database: /tmp/mydata.db
+    username: ""
+    password: ""
+    direct: { host: localhost, port: 0 }
+    healthcheck: { query: "SELECT 1" }
+    safety:
+      confirm: true
+      read_only: true
+
+  # Local DuckDB — file-based (or ":memory:" for in-memory analytics).
+  local-duckdb:
+    description: "REFERENCE: Local DuckDB (edit path before using)"
+    aliases: []
+    type: direct
+    driver: duckdb
+    database: /tmp/mydata.duckdb
+    username: ""
+    password: ""
+    direct: { host: localhost, port: 0 }
+    healthcheck: { query: "SELECT 1" }
+    safety:
+      confirm: true
+      read_only: true

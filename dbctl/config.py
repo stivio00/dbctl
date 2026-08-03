@@ -247,16 +247,22 @@ class Connection(BaseModel):
         if not self.database:
             raise ValueError("'database' is required (or use 'url:' for a full connection string)")
 
+        # File-based drivers (sqlite, duckdb) have no auth — skip the
+        # credential requirement entirely. The username/password fields
+        # are accepted (and ignored by the driver) for config-schema
+        # compatibility, but none is required.
+        _file_based = self.driver.startswith(("sqlite", "duckdb"))
+
         sources = [bool(self.password), bool(self.password_env), self.prompt]
         if sum(sources) > 1:
             raise ValueError("'password', 'password_env' and 'prompt' are mutually exclusive")
-        if not any(sources) and not self.windows_sso:
+        if not _file_based and not any(sources) and not self.windows_sso:
             raise ValueError("set 'password', 'password_env', 'prompt: true', or 'windows_sso: true'")
         if self.windows_sso and any(sources):
             raise ValueError("'windows_sso' is mutually exclusive with password/password_env/prompt")
         if self.windows_sso and not self.driver.startswith("mssql"):
             raise ValueError("'windows_sso' is only supported with mssql+pyodbc driver")
-        if not self.windows_sso and not self.username:
+        if not _file_based and not self.windows_sso and not self.username:
             raise ValueError("'username' is required (or set 'windows_sso: true' for mssql SSO)")
         return self
 
@@ -339,11 +345,17 @@ class ReplaySpec(BaseModel):
     ``package.module:callable`` / ``package.module.callable`` resolving to a
     ``Callable[[dict], dict]``. The callable runs in-process; it must not
     reach across connections.
+
+    `on_conflict` defaults to ``skip`` (unlike ``copy`` which defaults to
+    ``error``) — a replay is typically additive (replay new/changed rows
+    from a source log into a target without breaking existing entries).
+    Use ``truncate`` if you want a full refresh instead.
     """
 
     model_config = ConfigDict(extra="forbid")
     batch_size: int = 10000
     tables: list[str] | None = None  # None = introspect src
+    on_conflict: OnConflict = OnConflict.skip  # default skip (additive)
     where: dict[str, str] = Field(default_factory=dict)
     transform: str = "identity"
 

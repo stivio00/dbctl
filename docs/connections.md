@@ -39,7 +39,7 @@ overlap with a clear message.
 | `description`   | string                                    | no       | shown in the dashboard and `dbctl connections list`. |
 | `aliases`       | list of strings                           | no       | alternates that resolve back to this connection (e.g. `prod` → `db1`). |
 | `type`          | `ssm` \| `ssh` \| `k8s` \| `direct`       | **yes**  | selects the tunnel implementation. |
-| `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`. Any other SQLAlchemy scheme works as long as its driver is importable. |
+| `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`, `oracle+oracledb`, `sqlite`, `duckdb`. Any other SQLAlchemy scheme works as long as its driver is importable. |
 | `database`      | string                                    | **yes**  | database / catalog name passed to SQLAlchemy. |
 | `username`      | string                                    | **yes** (unless `windows_sso`) | DB user. |
 | `password`      | string                                    | see rule | plaintext DB password (local dev only — don't commit real secrets to YAML). Mutually exclusive with `password_env`, `prompt`, and `windows_sso`. |
@@ -318,6 +318,72 @@ connections:
     direct: { host: localhost, port: 1433 }
     healthcheck: { query: "SELECT 1" }
     safety: { confirm: false, read_only: false }
+```
+
+### Oracle Database (thin mode — no native client needed)
+
+```yaml
+connections:
+  prod-oracle:
+    description: "Production Oracle (oracledb thin mode)"
+    type: direct
+    driver: oracle+oracledb
+    database: ORCLPDB1   # service name (or SID)
+    username: app_admin
+    password_env: DBCTL_ORACLE_PASSWORD
+    direct: { host: db.internal, port: 1521 }
+    healthcheck: { query: "SELECT 1 FROM DUAL", timeout_seconds: 10 }
+    safety:
+      confirm: true
+      read_only: false
+```
+
+> `oracledb` defaults to **thin mode** (pure Python, no Oracle Instant
+> Client needed). If you need thick mode (native Oracle client libs), set
+> it via the `url:` field with `thick_mode=true` in the query string.
+
+### Local SQLite database (file-based)
+
+```yaml
+connections:
+  local-sqlite:
+    description: "Local SQLite database"
+    type: direct
+    driver: sqlite
+    database: /path/to/mydata.db   # absolute path to the .db file
+    username: ""                   # sqlite ignores these but config requires one
+    password: ""                   # sqlite ignores
+    direct: { host: localhost, port: 0 }  # ignored by sqlite; required by config schema
+    healthcheck: { query: "SELECT 1" }
+    safety:
+      confirm: true
+      read_only: false
+```
+
+> SQLite and DuckDB are file-based — the `host` / `port` fields are
+> ignored by the driver but `type: direct` still requires a `direct:`
+> block. Use `url:` mode if you prefer:
+> ```yaml
+> url: "sqlite:////absolute/path/to/mydata.db"
+> ```
+> (Note the four slashes for absolute paths in SQLAlchemy's sqlite scheme.)
+
+### Local DuckDB database (file-based)
+
+```yaml
+connections:
+  local-duckdb:
+    description: "Local DuckDB database"
+    type: direct
+    driver: duckdb
+    database: /path/to/mydata.duckdb   # or ":memory:" for in-memory
+    username: ""                        # duckdb ignores
+    password: ""                        # duckdb ignores
+    direct: { host: localhost, port: 0 }
+    healthcheck: { query: "SELECT 1" }
+    safety:
+      confirm: true
+      read_only: false
 ```
 
 ### CloudNativePG cluster via kubectl port-forward

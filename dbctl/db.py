@@ -80,14 +80,12 @@ def _connect_args(conn: Connection, timeout: float) -> dict:
     """Driver-specific connect-time knobs (mainly connect_timeout)."""
     args: dict = {}
     driver = _driver_name(conn)
-    if driver.startswith(("postgresql", "mysql", "mariadb")):
+    if driver.startswith(("postgresql", "mysql", "mariadb", "oracle")):
         args["connect_timeout"] = int(max(1, timeout))
+    # sqlite + duckdb are file-based — no connect_timeout; SQLAlchemy
+    # ignores it anyway, but we skip it so we don't pass an unknown kwarg
+    # to the underlying C library.
     if conn.windows_sso:
-        # pyodbc: Trusted_Connection=yes tells the ODBC driver to use the
-        # current Windows user's credentials (Kerberos / NTLM). The ODBC
-        # Driver 17+ also supports Authentication=ActiveDirectoryIntegrated
-        # for Azure AD SSO — use that by setting it explicitly via
-        # connect_args in your config if needed.
         args["Trusted_Connection"] = "yes"
     return args
 
@@ -99,6 +97,11 @@ def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Eng
     tunnel's local bind is NOT injected — the URL's own host:port wins. This
     is intentional: a user who provides a full URL is taking responsibility
     for the entire connection string.
+
+    File-based drivers (``sqlite``, ``duckdb``) never get host/port/username/
+    password injected — the URL is just ``driver:///path/to/file``. The
+    tunnel's local bind is irrelevant for file-based DBs (the file is
+    local), and injecting `host:port` makes SQLAlchemy reject the URL.
     """
     driver = _driver_name(conn)
     _check_driver_available(driver)
@@ -107,6 +110,11 @@ def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Eng
 
     if conn.url:
         url = make_url(conn.url)
+    elif driver.startswith(("sqlite", "duckdb")):
+        # File-based: URL is just "sqlite:///path" or "duckdb:///path".
+        # No host/port/username/password — those are meaningless for a
+        # local file. The database field IS the file path.
+        url = URL.create(driver, database=conn.database)
     else:
         password = resolve_password(conn)
         url = URL.create(
@@ -138,6 +146,9 @@ def _check_driver_available(driver: str) -> None:
         "mysql+pymysql": "pymysql",
         "mariadb+pymysql": "pymysql",
         "mssql+pyodbc": "pyodbc",
+        "oracle+oracledb": "oracledb",
+        "sqlite": "sqlite3",  # stdlib — always available
+        "duckdb": "duckdb",
     }
     pkg = module_map.get(driver)
     if pkg is None:
@@ -182,6 +193,12 @@ def _native_lib_hint(driver: str, library: str) -> str:
             "missing native libpq; install PostgreSQL client libs "
             "(Debian/Ubuntu: `sudo apt install libpq5`, "
             "RHEL/Fedora: `sudo dnf install libpq`, macOS: `brew install libpq`)."
+        )
+    if "libociei" in (library or "") or "libclntsh" in (library or "") or "libocci" in (library or ""):
+        return (
+            "missing Oracle Instant Client libs (libclntsh / libociei / libocci); "
+            "install Oracle Instant Client (download from oracle.com, or use "
+            "`pip install oracledb` with the default Thin mode which needs no native libs)."
         )
     return ""
 

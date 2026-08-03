@@ -67,7 +67,15 @@ def run_wizard(*, profile: str | None) -> None:
         driver = click.prompt(
             "driver (sqlalchemy url scheme)",
             type=click.Choice(
-                ["postgresql+psycopg", "mysql+pymysql", "mariadb+pymysql", "mssql+pyodbc"],
+                [
+                    "postgresql+psycopg",
+                    "mysql+pymysql",
+                    "mariadb+pymysql",
+                    "mssql+pyodbc",
+                    "oracle+oracledb",
+                    "sqlite",
+                    "duckdb",
+                ],
                 case_sensitive=False,
             ),
             default="postgresql+psycopg",
@@ -214,6 +222,8 @@ def _default_port(driver: str) -> int:
         return 3306
     if driver.startswith("mssql"):
         return 1433
+    if driver.startswith("oracle"):
+        return 1521
     return 5432
 
 

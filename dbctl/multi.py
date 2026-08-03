@@ -672,14 +672,14 @@ def run_replay(
     each row before it lands in the insert batch. ``"identity"`` makes the
     replay equivalent to a plain copy.
     """
-    from dbctl.config import CopySpec, OnConflict
+    from dbctl.config import CopySpec
 
     # Adapt ReplaySpec → CopySpec so we reuse the copy machinery verbatim.
     copy_spec = CopySpec(
         batch_size=spec.batch_size,
         tables=spec.tables,
         where=spec.where,
-        on_conflict=OnConflict.error,  # replay is copy-with-transform; default to no skip
+        on_conflict=spec.on_conflict,  # replay defaults to skip (additive)
     )
     transform = _resolve_transform(spec.transform)
     return run_copy(

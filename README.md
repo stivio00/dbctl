@@ -53,8 +53,9 @@ your shell history. (For ad-hoc exploration open the tunnel with
 | `direct` | No tunnel — connect to the upstream host:port directly        | none |
 
 Each connection declares its SQLAlchemy URL scheme (`postgresql+psycopg`,
-`mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`, …), a healthcheck query,
-optional introspection (`info`) queries, and a `safety` policy.
+`mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`, `oracle+oracledb`,
+`sqlite`, `duckdb`, …), a healthcheck query, optional introspection
+(`info`) queries, and a `safety` policy.
 
 Operations are declared separately in `operations.yaml`. Each operation is a
 parameterised SQL block (using `$name` placeholders) with declared parameters;

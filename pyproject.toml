@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbctl"
-version = "0.6.2"
+version = "0.6.3"
 description = "Generic CLI to monitor, control, and administer multiple databases via SSM, SSH, or direct connection."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "dbctl contributors" }]
-keywords = ["cli", "database", "postgres", "mysql", "mssql", "ssm", "ssh", "tunnel"]
+keywords = ["cli", "database", "postgres", "mysql", "mssql", "oracle", "sqlite", "duckdb", "ssm", "ssh", "tunnel"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -31,6 +31,8 @@ dependencies = [
   "psycopg[binary]>=3.1",
   "pymysql>=1.1",
   "pyodbc>=5",
+  "oracledb>=2",
+  "duckdb>=1",
 ]
 
 [project.optional-dependencies]

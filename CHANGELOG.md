@@ -5,6 +5,48 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] — 2026-08-03
+
+### Added
+
+- **Oracle Database support** — `oracle+oracledb` driver (thin mode, pure
+  Python — no Oracle Instant Client needed). `oracledb>=2` added as a
+  core dependency. The init wizard offers it in the driver choice list;
+  `_default_port` returns 1521 for Oracle. Native-lib hint for Oracle
+  Instant Client (`libclntsh` / `libociei` / `libocci`) failure path
+  included in `dbctl.db._native_lib_hint`. Healthcheck query convention
+  is `SELECT 1 FROM DUAL`.
+- **SQLite support** — `sqlite` driver (built into Python stdlib, no
+  extra dependency). File-based: `build_engine` skips host/port/
+  username/password injection (just `sqlite:///path`). Config validator
+  exempts file-based drivers (sqlite + duckdb) from the credential
+  requirement — `username` and `password` are not needed.
+- **DuckDB support** — `duckdb` driver. `duckdb>=1` added as a core
+  dependency. Same file-based handling as SQLite (`duckdb:///path` or
+  `duckdb:///:memory:`).
+- **`replay_spec.on_conflict`** field — the conflict-handling strategy
+  for replay mode. Defaults to `skip` (additive — replay new/changed
+  rows without breaking existing entries), unlike `copy_spec` which
+  defaults to `error`. Use `truncate` for a full refresh.
+- **`logo_small.png`** added to top of every `docs/*.md` file; README
+  gets a centred logo_small footer (big logo stays at top).
+
+### Fixed
+
+- **`replay-users` crashed on existing rows** — hardcoded
+  `on_conflict=error` meant any PK collision in the target aborted the
+  replay. Now uses `replay_spec.on_conflict` (default `skip`), so
+  `INSERT IGNORE` / `ON CONFLICT DO NOTHING` handles duplicates cleanly
+  and the report shows inserted vs skipped counts correctly.
+- **File-based drivers (sqlite/duckdb) rejected by config validator**
+  — required username + password even though the drivers ignore them.
+  The validator now exempts `sqlite*` and `duckdb*` from the credential
+  requirement.
+- **File-based drivers: `build_engine` injected host:port into the URL**
+  — SQLAlchemy rejected `sqlite://:***@localhost:0//path` with an
+  ArgumentError. Now skips host/port/username/password for file-based
+  drivers; the URL is just `sqlite:///path`.
+
 ## [0.6.2] — 2026-08-03
 
 ### Added
