@@ -5,6 +5,196 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-08-03
+
+### Added
+
+- **Multi-DB operation-first CLI** — every multi-scope operation now has a
+  top-level command `dbctl <op> <src-conn> <trg-conn> ...` (preferred) in
+  addition to the deprecated verb-first alias `dbctl <verb> <op> ...`.
+  Operation-first commands emit no deprecation notice; the verb-first
+  groups (`dbctl diff <op> ...`, `dbctl copy <op> ...`, etc.) keep working
+  for existing scripts but print Click's standard deprecation warning
+  pointing at the operation-first form. The root `MultiCommand` now
+  exports the multi-op names alongside the deprecated verb-first aliases
+  so shell completion lists both shapes.
+- **`mode: copy`** — bulk-copy rows from `src` to `trg`, table by table,
+  in batches. Cross-dialect (rows travel through Python `dict`s via
+  SQLAlchemy mappings and are re-inserted via `executemany` on the
+  destination engine). Declared via `copy_spec:` (`batch_size`,
+  `tables`, `on_conflict`, `where`, `truncate_first`). `--on-conflict
+  truncate` is a CLI shortcut for `truncate_first: true` + `on_conflict:
+  error`. Conflict handling is dialect-aware: Postgres `ON CONFLICT DO
+  NOTHING` / `DO UPDATE`, MySQL `INSERT IGNORE` / `ON DUPLICATE KEY
+  UPDATE`, MSSQL per-row `NOT EXISTS` guard (no native `ON CONFLICT`).
+  `--dry-run` reads src + simulates inserts and writes nothing to trg.
+- **`mode: sync`** — converge `trg` to match `src` for one `target_table`:
+  insert missing rows, update differing non-key columns, optionally
+  delete trg-only rows (with `--delete-extras`). Both `queries.src` and
+  `queries.trg` must SELECT the same column shape; `sync_spec.key`
+  identifies rows. Direction is src → trg only (make-trg-match-src);
+  bidirectional merge with conflict arbitration is out of scope.
+  `--dry-run` reports insert/update/delete counts without writing.
+- **`mode: validate`** — structural schema diff via SQLAlchemy
+  `inspect()`: compares columns (name + type) for each table present in
+  both schemas. `validate_spec.tables` lists tables explicitly, or null
+  to introspect the intersection. `include` / `exclude` are column-name
+  filters. A clean schema prints a green `✓`; mismatches render as a
+  per-column table tagged `missing_in_trg` / `missing_in_src` /
+  `type_mismatch`. The audit `status` is `ok` (no drift) or `drift`.
+- **`mode: replay`** — bulk-copy with a per-row Python transform applied
+  before writing to trg. Reuses the `copy` machinery; the transform
+  resolves to a `Callable[[dict], dict]` via `"identity"` (no-op) or
+  `"package.module:callable"` import path. Useful for redacting PII,
+  normalising enums, or computing derived columns before the insert.
+- **`diff.strategy: table_counts`** — auto-generate
+  `SELECT '<t>' AS t, COUNT(*) AS n FROM <t>` per declared table per
+  role, so the common "row counts of every table" diff no longer needs
+  per-table SQL boilerplate. No `queries:` block required. (NOTE: the
+  `["*"]` introspection shorthand is only supported on `copy` / `replay`
+  — list tables explicitly for `table_counts`.)
+- **`SyncSpec` / `CompareSpec` / `ValidateSpec` / `ReplaySpec`** config
+  schemas in `dbctl.config`, so `operations.yaml` validates the new
+  modes at load time. `OpMode` extended with `copy` / `validate` /
+  `replay`. `DiffSpec` gained a `strategy` field (`custom` /
+  `table_counts`).
+- **Operations loader resilience** — `operations.load()` now validates
+  each operation independently (mirroring the connections loader). A
+  single mis-declared op no longer rejects the whole registry; the bad
+  ones are reported via a new `OperationsFileError` with a one-line
+  per-op message (stripped of pydantic's `ValidationError` boilerplate
+  and `errors.pydantic.dev` trailer), and the good ones keep loading so
+  `--help` / `dbctl operations list` / dashboard still render.
+- **`fmt_db_error`** helper in `dbctl.db` that renders a clean
+  one-line message from a SQLAlchemy / DBAPI error: strips the
+  `(<driver>.<ExceptionName>)` prefix and the
+  `(Background on this error at: https://sqlalche.me/...)` trailer.
+  The multi-op dispatch + single-op execute paths now route SQLAlchemy
+  errors through this so a dropped connection mid-copy or a wrong
+  password surfaces as plain English (e.g. `password authentication
+  failed for user "app_admin"`) instead of a multi-line traceback.
+  `healthcheck` likewise peels the
+  `connection to server at ..., port N failed: FATAL: ...` preamble to
+  keep only the meaningful reason.
+- **`Makefile`** with standard dev/release targets: `make help`, `lint`,
+  `format`, `typecheck`, `check`, `check-strict`, `test`, `test-cov`,
+  `smoke`, `chaos`, `docker-up` / `docker-down` / `docker-logs` /
+  `docker-reset`, `clean`, `build`, `check-uv-lock`, `publish-test`,
+  `publish`, `install`, `venv`, `install-config`.
+- **Logo** (`docs/logo.png`) bundled into the wheel and sdist as
+  `dbctl/logo.png` (hatchling `force-include`); the README renders it as
+  a centred banner above the title.
+- **Bundled sample operations** — `.dbctl/operations.yaml` now ships
+  showcase examples for every v0.6.0 mode (`copy-users`, `sync-users`,
+  `validate-schema`, `replay-users`, `table-counts`).
+- **Regression tests** for the new modes (operation-first dispatch,
+  copy / sync / validate / replay runtimes, dry-run paths, transform
+  resolution) and for the loader-resilience + error-formatting fixes.
+
+### Changed
+
+- **Minimum Python is 3.12.** `pyproject.toml`'s `requires-python` and
+  ruff/mypy `target-version` bumped from `py311` to `py312`; the 3.11
+  classifier is dropped.
+- **`Operation` model validator** now branches on mode for multi-scope:
+  `diff` / `compare` need `queries` (per role) unless
+  `diff.strategy: table_counts`; `copy` needs `copy_spec` and roles
+  `[src, trg]` when introspecting; `sync` needs `sync_spec` +
+  `queries.src` + `queries.trg`; `validate` / `replay` need their
+  respective specs (queries not required).
+- `dbctl operations validate` now catches `OperationsFileError`
+  specifically, prints the per-op friendly lines, and bumps the exit
+  code to 1 — instead of dumping a raw `ValidationError`. The
+  `_check_multi_mode` block's outdated v2-stub reservation note ("the
+  CLI rejects attempts to invoke them with a clear message") is
+  fulfilled: the runtime now implements all three modes rather than
+  rejecting them.
+- README + `docs/operations.md` rewritten to document every v0.6.0
+  mode, the operation-first CLI form, the dry-run flag matrix for the
+  write modes, and the `make`-based dev workflow. The roadmap no longer
+  lists `compare` / `sync` as reserved.
+
+### Fixed
+
+- **Schema-qualified table introspection on MySQL/MariaDB** —
+  `_introspect_tables` treated MySQL's current database (e.g. `app`) as
+  a non-default schema, so every MySQL table came back as `app.users`
+  while Postgres stayed bare. This broke `validate-schema` (0 tables
+  compared) and the introspected variants of `copy` / `replay` because
+  the cross-DB set operations mismatched. The default-schema set now
+  also includes the engine's own `url.database`, so MySQL yields bare
+  `users` just like Postgres.
+- **`run_copy` skipped-count math** for `on_conflict: skip` was
+  double-counting because `skipped += len(chunk) - inserted` used the
+  cumulative `inserted` accumulator instead of the per-batch return
+  value. Each batch now computes its own delta against
+  `_insert_batch`'s return.
+- **`_insert_batch` rowcount** always returned `len(rows)` (the batch
+  size) regardless of how many rows the driver actually wrote — so
+  `INSERT IGNORE` / `ON CONFLICT DO NOTHING` reported every duplicate
+  as inserted and skipped=0. Now uses `cursor.rowcount` when the
+  driver reports it (and falls back to `len(rows)` if the driver
+  returns -1 / unknown), so `--on-conflict skip` reports the real
+  inserted-vs-skipped split.
+- **Schema-qualified table introspection on MySQL/MariaDB** —
+  `_introspect_tables` treated MySQL's current database (e.g. `app`) as
+  a non-default schema, so every MySQL table came back as `app.users`
+  while Postgres stayed bare. This broke `validate-schema` (0 tables
+  compared) and the introspected variants of `copy` / `replay` because
+  the cross-DB set operations mismatched. The default-schema set now
+  also includes the engine's own `url.database`, so MySQL yields bare
+  `users` just like Postgres.
+- **`run_replay` dropped `--batch-size`.** `run_replay` ignored the
+  caller's `batch_size` kwarg; the `_do_replay` dispatcher now forwards
+  it so `dbctl replay-users pg my --batch-size 200` actually overrides
+  the spec default.
+- **`dbctl` SQLAlchemy / DBAPI errors escaped as raw tracebacks** in
+  the multi-op dispatch and the single-op execute path when a
+  connection went down mid-run (or with a wrong password). The
+  dispatchers now catch `SQLAlchemyError` alongside `RuntimeError` and
+  render the message via `fmt_db_error`, which strips the
+  `(<driver>.<ExceptionName>)` prefix and the
+  `(Background on this error at: https://sqlalche.me/...)` trailer.
+  `healthcheck` likewise peels the
+  `connection to server at ..., port N failed: FATAL: ...` preamble to
+  keep only the meaningful reason (e.g. `password authentication failed
+  for user "app_admin"`).
+- **`operations validate`** dumped a raw pydantic `ValidationError` for
+  a broken YAML op. It now catches `OperationsFileError` specifically,
+  prints one clean per-op line and exits 1 — no `errors.pydantic.dev`
+  trailer, no multi-screen stack trace.
+- **YAML parse errors escaped as multi-line `yaml.scanner.ScannerError`
+  dumps** with line/column carets and quote markers. Both loaders
+  (`connections.load`, `operations.load`) now collapse a `YAMLError`
+  into one friendly line via `_friendly_yaml_error`, prefixing the file
+  location, e.g. `<file>: YAML parse error:3:1: found character '\t'
+  that cannot start any token`. The CLI surfaces this through the same
+  `ConnectionsFileError` / `OperationsFileError` path used for
+  pydantic-validation failures, so a malformed `connections.yaml` /
+  `operations.yaml` no longer reaches the user as a four-line
+  traceback.
+- **Plaintext `password:` source** round-trips end-to-end against the
+  live docker fleet — a connection declared with `password: pwd_postgres`
+  (no `password_env`, no `prompt: true`) loads cleanly, resolves to the
+  inline value at load time, and `dbctl doctor` / `<op>` invocations
+  work without an env var being set. (Already documented since v0.4.0;
+  this release adds regression coverage so a future refactor that
+  accidentally required an env var would fail the suite.)
+
+### Known limitations
+
+- `validate` compares column types as SQLAlchemy-flavoured strings
+  (e.g. `VARCHAR(120)` vs `TEXT`); it does not normalise type aliases.
+  Use `include` / `exclude` to silence noise from intentionally
+  divergent storage types.
+- `replay` doesn't yet ship a `--transform` CLI flag override — edit
+  the operation YAML for now. A `--transform` flag is on the v0.7 list.
+- `table_counts` diff strategy does not support `tables: ["*"]`
+  introspection like `copy` / `replay` do — list the tables explicitly.
+- The bundled `ms` (SQL Server) connection is `read_only: true` and
+  requires `ODBC Driver 18 for SQL Server` on the host; the docker
+  smoke tests in this release ran against `pg` + `my`.
+
 ## [0.5.3] — 2026-08-01
 
 ### Fixed

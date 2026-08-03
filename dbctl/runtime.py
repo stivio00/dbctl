@@ -18,6 +18,7 @@ from rich.console import Console
 
 from dbctl.connections import ConnectionsFileError
 from dbctl.connections import load as load_connections
+from dbctl.operations import OperationsFileError
 from dbctl.operations import load as load_operations
 
 if TYPE_CHECKING:
@@ -48,7 +49,13 @@ def registries(ctx: click.Context) -> tuple[dict, dict]:
         conns = {}
     try:
         ops = load_operations(profile=prof)
-    except Exception as e:  # noqa: BLE001
+    except OperationsFileError as e:
+        # Surface per-op errors concisely, but still serve the operations
+        # that /did/ validate so a single mis-declared op doesn't take the
+        # whole CLI down.
+        err_console.print(f"[red]operations.yaml:[/red] {e}")
+        ops = e.valid
+    except Exception as e:  # noqa: BLE001 - YAML parse error, IO, etc.
         err_console.print(f"[red]operations.yaml:[/red] {e}")
         ops = {}
     return conns, ops

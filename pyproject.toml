@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbctl"
-version = "0.5.3"
+version = "0.6.0"
 description = "Generic CLI to monitor, control, and administer multiple databases via SSM, SSH, or direct connection."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "dbctl contributors" }]
 keywords = ["cli", "database", "postgres", "mysql", "mssql", "ssm", "ssh", "tunnel"]
@@ -18,7 +18,6 @@ classifiers = [
   "Intended Audience :: System Administrators",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Database",
@@ -48,16 +47,24 @@ dbctl = "dbctl.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["dbctl"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"docs/logo.png" = "dbctl/logo.png"
+
+# In the sdist, keep the logo at its source path so the wheel built from
+# the sdist can still find it via the wheel force-include above.
+[tool.hatch.build.targets.sdist.force-include]
+"docs/logo.png" = "docs/logo.png"
+
 [tool.ruff]
 line-length = 110
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["B904"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 

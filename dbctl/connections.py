@@ -71,11 +71,36 @@ def _first_validation_msg(e: Exception) -> str:
     return str(e).split("\n", 1)[0]
 
 
+def _friendly_yaml_error(e: Exception) -> str:
+    """Collapse a ``yaml.scanner.ScannerError`` / ``YAMLError`` into a
+    one-line friendly message with the file's line:column prefix, e.g.
+
+        :3:1: while scanning for the next token, found character '\\t' that cannot start any token
+
+    The caller wraps it with the registry name (``"connections.yaml: YAML parse error" + …``).
+    Falls back to ``str(e)`` for non-yaml errors and to the type name for
+    empty messages. Multi-line ``scanner`` dumps are flattened to a single
+    sentence (the line/column helper is preserved) so a malformed YAML no
+    longer reaches the user as a four-line traceback.
+    """
+    mark = getattr(e, "problem_mark", None)
+    problem = getattr(e, "problem", None) or str(e).split("\n", 1)[0]
+    loc = f":{mark.line + 1}:{mark.column + 1}" if mark is not None and (mark.line or mark.column) else ""
+    if not problem:
+        return type(e).__name__
+    return f"{loc}: {problem}".replace("\n", " ").strip()
+
+
 def load(path: Path | None = None, profile: str | None = None) -> dict[str, Connection]:
     p = path or connections_path(profile)
     if not p.exists():
         return {}
-    raw = yaml.safe_load(p.read_text()) or {}
+    try:
+        raw = yaml.safe_load(p.read_text()) or {}
+    except yaml.YAMLError as e:
+        raise ConnectionsFileError({"<file>": f"YAML parse error{_friendly_yaml_error(e)}"}) from e
+    except OSError as e:
+        raise ConnectionsFileError({"<file>": f"read error: {e}"}) from e
 
     if not isinstance(raw, dict) or "connections" not in raw:
         raise ConnectionsFileError({"<file>": "missing top-level 'connections:' mapping"})

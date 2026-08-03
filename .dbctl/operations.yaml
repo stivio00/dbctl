@@ -108,3 +108,72 @@ operations:
     diff:
       key: [t]
       show: [n_rows, total_limit]
+
+  # compare row counts of every user table side-by-side.
+  # Uses the `table_counts` strategy so we don't have to spell out the
+  # SELECT 'users' AS t, COUNT(*) ... boilerplate per table.
+  # NOTE: list the tables explicitly — `["*"]` introspection is only
+  # supported by `copy`/`replay`, not by the `table_counts` diff strategy.
+  table-counts:
+    description: "Compare row counts of every declared table across two DBs"
+    scope: multi
+    mode: diff
+    roles: [src, trg]
+    diff:
+      strategy: table_counts
+      tables: [users, quotas, usage, logs]
+      key: [t]
+      show: [n]
+
+  # bulk-copy the `users` table from src to trg in batches of 1000 rows.
+  # `--on-conflict truncate` is the safe refresh path; `--dry-run` simulates.
+  copy-users:
+    description: "Bulk-copy users table src → trg (batches of 1000)"
+    scope: multi
+    mode: copy
+    roles: [src, trg]
+    copy_spec:
+      batch_size: 1000
+      tables: [users]                 # omit `tables:` to introspect all src tables
+      on_conflict: error              # error | skip | update | truncate
+
+  # converge the `users` table on trg to match src: insert missing rows,
+  # update differing rows, and (with --delete-extras) delete trg-only rows.
+  # Both queries MUST return the same column shape; `key` identifies rows.
+  sync-users:
+    description: "Converge trg users to match src (insert + update; --delete-extras to also remove)"
+    scope: multi
+    mode: sync
+    roles: [src, trg]
+    queries:
+      src: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
+      trg: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
+    sync_spec:
+      key: [id]
+      target_table: users
+      delete_extras: false             # CLI `--delete-extras` overrides per run
+
+  # detect schema drift: compare columns + types for each table present in
+  # both schemas. Leave `tables:` null to introspect the intersection.
+  validate-schema:
+    description: "Detect column/type drift between src and trg schemas"
+    scope: multi
+    mode: validate
+    roles: [src, trg]
+    validate_spec:
+      tables: [users, quotas, usage, logs]
+      # include: []                  # restrict to these column names
+      # exclude: [created_at]         # drop these column names from the diff
+
+  # copy with a per-row Python transform. `identity` is a no-op; to mutate
+  # rows set `transform:` to a `package.module:callable` import path that
+  # takes a row dict and returns a dict.
+  replay-users:
+    description: "Copy users src → trg with a per-row transform (identity = no-op)"
+    scope: multi
+    mode: replay
+    roles: [src, trg]
+    replay_spec:
+      tables: [users]
+      batch_size: 500
+      transform: identity

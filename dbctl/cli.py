@@ -20,6 +20,7 @@ from typing import Any
 import click
 import yaml
 from rich.table import Table
+from sqlalchemy.exc import SQLAlchemyError
 
 from dbctl import __version__
 from dbctl.config import Operation, OutputFormat, Param, ParamType
@@ -376,7 +377,7 @@ def _execute_single(
             rows = res.rows
             rows_affected = res.rows_affected
             status = "ok"
-        except RuntimeError as e:
+        except (RuntimeError, SQLAlchemyError) as e:
             append(
                 profile=ctx.obj.get("profile"),
                 connection=canonical,
@@ -388,7 +389,7 @@ def _execute_single(
                 actor=ctx.obj.get("actor"),
                 redact=_secret_names(op),
             )
-            err_console.print(f"[red]{e}[/red]")
+            err_console.print(f"[red]{_fmt_db_error(e)}[/red]")
             raise SystemExit(1)
 
         if rows is not None:
@@ -414,35 +415,124 @@ def _secret_names(op: Operation) -> set[str]:
     return {p.name for p in op.parameters if p.type is ParamType.secret}
 
 
+# Lazy import keeps the module import-time 轻; the dynamic CLI callback
+# pulls this only when an error actually surfaces.
+def _fmt_db_error(e: BaseException) -> str:
+    from dbctl.db import fmt_db_error
+
+    return fmt_db_error(e)
+
+
 # --------------------------------------------------------------------------- #
 # multi-connection command builder (see `_make_multi_group` below)
 # --------------------------------------------------------------------------- #
 
 
 def _make_multi_group(verb: str, ops):
-    """Build a top-level group for one multi verb, with one subcommand per
-    declared operation. Each subcommand takes the role-connections as leading
-    positional args (matching ``roles`` in declared order) followed by the
-    operation's own declared parameters.
+    """Build a *deprecated verb-first* top-level group for one multi verb,
+    with one subcommand per declared operation. Each subcommand takes the
+    role-connections as leading positional args (matching ``roles`` in
+    declared order) followed by the operation's own declared parameters.
 
-        dbctl diff user-count pg my
-        dbctl diff compare-quotas pg my Daily
-        dbctl compare top-users pg my --limit 5
+        dbctl diff user-count pg my                     # deprecated alias
+        dbctl user-count pg my                          # operation-first (preferred)
+
+    Click deprecation: clicking any verb-first command prints a warning
+    pointing at the operation-first form. The verb-first group is kept so
+    muscle memory and existing scripts keep working — the actual work is
+    routed to the same operation-first command builder.
     """
     matching = {n: o for n, o in ops.items() if o.scope.value == "multi" and o.mode.value == verb}
     if not matching:
         return None
 
-    @click.group(name=verb, help=f"Multi-connection `{verb}` operations: {', '.join(matching)}")
+    @click.group(
+        name=verb,
+        help=(
+            f"Multi-connection `{verb}` operations (deprecated verb-first form; "
+            f"prefer `dbctl <op> ...`). Ops: {', '.join(matching)}"
+        ),
+        deprecated=True,
+    )
     def group():
         pass
 
     for op_name, op in matching.items():
-        group.add_command(_make_multi_op_command(verb, op_name, op))
+        group.add_command(_make_multi_op_command(verb, op_name, op, deprecated=True))
     return group
 
 
-def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Command:
+def _copy_click_params(op: Operation) -> list[click.Parameter]:
+    """Emit per-mode CLI flags for multi ops: copy gets ``--batch-size`` /
+    ``--on-conflict`` / ``--dry-run``; sync gets ``--dry-run`` /
+    ``--delete-extras``; replay gets ``--batch-size`` / ``--dry-run``.
+    The callback pops these by name regardless of whether the op emits them,
+    so missing flags default to ``None`` / ``False``.
+    """
+    flags: list[click.Parameter] = []
+    if op.copy_spec is not None:
+        from dbctl.config import OnConflict
+
+        flags.append(
+            click.Option(
+                ["--batch-size"],
+                type=click.INT,
+                default=op.copy_spec.batch_size,
+                help=f"Rows per executemany batch (default {op.copy_spec.batch_size}).",
+            )
+        )
+        flags.append(
+            click.Option(
+                ["--on-conflict"],
+                type=click.Choice([m.value for m in OnConflict]),
+                default=op.copy_spec.on_conflict.value,
+                help="Conflict handling when target rows already exist.",
+            )
+        )
+        flags.append(
+            click.Option(
+                ["--dry-run/--no-dry-run"],
+                default=False,
+                help="Read src + simulate inserts; write nothing to trg.",
+            )
+        )
+    elif op.sync_spec is not None:
+        flags.append(
+            click.Option(
+                ["--dry-run/--no-dry-run"],
+                default=False,
+                help="Diff src vs trg and report counts without writing.",
+            )
+        )
+        flags.append(
+            click.Option(
+                ["--delete-extras/--no-delete-extras"],
+                default=op.sync_spec.delete_extras,
+                help="Delete trg rows whose key is absent in src (default off).",
+            )
+        )
+    elif op.replay_spec is not None:
+        flags.append(
+            click.Option(
+                ["--batch-size"],
+                type=click.INT,
+                default=op.replay_spec.batch_size,
+                help=f"Rows per executemany batch (default {op.replay_spec.batch_size}).",
+            )
+        )
+        flags.append(
+            click.Option(
+                ["--dry-run/--no-dry-run"],
+                default=False,
+                help="Read src + simulate inserts; write nothing to trg.",
+            )
+        )
+    return flags
+
+
+def _make_multi_op_command(
+    verb: str, op_name: str, op: Operation, *, deprecated: bool = False
+) -> click.Command:
     pos_params = [p for p in op.parameters if p.position is not None]
     pos_params.sort(key=lambda p: p.position)
     keyword_params = [p for p in op.parameters if p.position is None]
@@ -466,7 +556,10 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
                 help=p.description or None,
             )
         )
+    # `--show-sql` is useful for diff/compare; harmless for copy (the
+    # introspected SELECT * won't be reported).
     click_params.append(click.Option(["--show-sql"], is_flag=True, help="Print resolved SQL per role."))
+    click_params.extend(_copy_click_params(op))
 
     def callback(**kwargs: Any):
         ctx = click.get_current_context()
@@ -477,25 +570,29 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
         # by their declared name — `r.upper()` would KeyError every run.
         role_conns = {r: kwargs.pop(r, None) for r in op.roles}
 
+        # copy-mode flags
+        batch_size = kwargs.pop("batch_size", None)
+        on_conflict = kwargs.pop("on_conflict", None)
+        dry_run = bool(kwargs.pop("dry_run", False))
+        delete_extras = kwargs.pop("delete_extras", None)
+
         from dbctl.audit import append
         from dbctl.connections import resolve
         from dbctl.execute import bind_params
-        from dbctl.multi import opened, run_role
+        from dbctl.multi import opened
         from dbctl.reports import render_rows, render_side_by_side
 
         conns_all, _ = registries(ctx)
         bound = bind_params(op, kwargs)
 
-        if show_sql:
-            for role, sql in (op.queries or {}).items():
-                console.print(f"[cyan]{role} SQL:[/cyan] {sql.strip()}")
-
-        opened_list = []
-        results: dict[str, list[dict]] = {}
-        started = time.monotonic()
+        # We default src/trg to roles[0]/roles[1] so copy/diff both work
+        # whether the user wrote `dbctl copy-users mssql pg` (operation-first)
+        # or `dbctl diff user-count pg my` (deprecated verb-first).
+        role_objs: list[tuple[str, str, Any]] = []
+        opened_list: list = []
         try:
-            for role in op.roles:
-                cname = role_conns[role]
+            for r in op.roles:
+                cname = role_conns[r]
                 try:
                     canonical, conn = resolve(cname, conns_all)
                 except KeyError as e:
@@ -503,11 +600,51 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
                     raise SystemExit(2)
                 oc = opened(canonical, conn).__enter__()
                 opened_list.append(oc)
-                results[role] = run_role(op, role, oc, bound)
+                role_objs.append((r, canonical, oc))
         except SystemExit:
             raise
-        except RuntimeError as e:
-            err_console.print(f"[red]{e}[/red]")
+        except (RuntimeError, SQLAlchemyError) as e:
+            err_console.print(f"[red]{_fmt_db_error(e)}[/red]")
+            raise SystemExit(1)
+        # finally-free cleanup runs unconditionally after dispatch below
+
+        started = time.monotonic()
+        mode = op.mode.value
+        try:
+            if mode == "copy":
+                _do_copy(ctx, op, op_name, role_objs, on_conflict, batch_size, dry_run, started)
+                return  # _do_copy also handles audit + render + cleanup
+            if mode == "sync":
+                _do_sync(ctx, op, op_name, role_objs, dry_run, delete_extras, started)
+                return
+            if mode == "validate":
+                _do_validate(ctx, op, op_name, role_objs, started)
+                return
+            if mode == "replay":
+                _do_replay(ctx, op, op_name, role_objs, batch_size, dry_run, started)
+                return
+            if mode == "diff" and op.diff and op.diff.strategy.value == "table_counts":
+                _do_table_counts_diff(ctx, op, op_name, role_objs, started)
+                # _do_table_counts_diff also handles cleanup
+                return
+
+            # default: existing diff-with-queries / compare.
+            # re-run via run_role on the opened engines; we no longer need
+            # multi-opened here because role_objs already has the opened
+            # engines (the previous loop opened everything).
+            from dbctl.multi import run_role
+
+            results: dict[str, list[dict]] = {}
+            for r, _canonical, oc in role_objs:
+                results[r] = run_role(op, r, oc, bound)
+
+            if show_sql:
+                for role, sql in (op.queries or {}).items():
+                    console.print(f"[cyan]{role} SQL:[/cyan] {sql.strip()}")
+        except SystemExit:
+            raise
+        except (RuntimeError, SQLAlchemyError) as e:
+            err_console.print(f"[red]{_fmt_db_error(e)}[/red]")
             raise SystemExit(1)
         finally:
             for oc in opened_list:
@@ -519,13 +656,13 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
             connection="|".join(role_conns[r] for r in op.roles),
             operation=op_name,
             params=bound,
-            mode=op.mode.value,
+            mode=mode,
             status="ok",
             duration_ms=(time.monotonic() - started) * 1000,
             actor=ctx.obj.get("actor"),
         )
 
-        if op.mode.value == "diff":
+        if mode == "diff":
             diff = op.diff
             sample = results.get(op.roles[0]) or results.get(op.roles[1]) or []
             key = diff.key if diff else (list(sample[0].keys())[:1] if sample else [])
@@ -550,9 +687,245 @@ def _make_multi_op_command(verb: str, op_name: str, op: Operation) -> click.Comm
         name=op_name,
         params=click_params,
         callback=callback,
-        help=f"{(op.description or '').strip()}\n\n  dbctl {verb} {op_name} {sig}".rstrip(),
+        help=f"{(op.description or '').strip()}\n\n  dbctl {op_name} {sig}".rstrip(),
         short_help=(op.description or op_name).strip(),
+        deprecated=deprecated,
     )
+
+
+# --------------------------------------------------------------------------- #
+# copy-mode dispatch
+# --------------------------------------------------------------------------- #
+def _do_copy(
+    ctx,
+    op,
+    op_name,
+    role_objs,
+    on_conflict,
+    batch_size,
+    dry_run,
+    started,
+) -> None:
+    """Drive `run_copy` against the opened src/trg engines and render."""
+    from dbctl.audit import append
+    from dbctl.config import OnConflict
+    from dbctl.multi import CopyReport, run_copy  # noqa: F401 (CopyReport for typing)
+    from dbctl.reports import render_copy_report
+
+    if op.roles != ["src", "trg"]:
+        err_console.print(f"[red]copy operation {op_name!r}: roles must be [src, trg], got {op.roles}[/red]")
+        raise SystemExit(2)
+    if op.copy_spec is None:
+        err_console.print(f"[red]copy operation {op_name!r}: missing copy_spec[/red]")
+        raise SystemExit(2)
+
+    spec = op.copy_spec.model_copy()  # work on a copy so spec mutation is local
+    if on_conflict is not None:
+        try:
+            spec.on_conflict = OnConflict(on_conflict)
+        except ValueError:
+            err_console.print(f"[red]unknown on_conflict value: {on_conflict!r}[/red]")
+            raise SystemExit(2)
+    if on_conflict == "truncate":
+        # `--on-conflict truncate` is a CLI shortcut for the spec's
+        # `truncate_first: true`; keep them aligned when mixed.
+        spec.truncate_first = True
+        spec.on_conflict = OnConflict.error
+    if dry_run:
+        spec.truncate_first = False
+
+    src_role, _, src_oc = role_objs[0]
+    trg_role, _, trg_oc = role_objs[1]
+    if dry_run:
+        console.print(
+            f"[yellow]dry-run:[/yellow] reading from {src_role} and simulating "
+            f"inserts into {trg_role}; nothing will be written"
+        )
+    report = run_copy(src_oc, trg_oc, spec, batch_size=batch_size, dry_run=dry_run)
+
+    role_conns_str = "|".join(ctx.params.get(r.upper(), r) or r for r in op.roles)
+    append(
+        profile=ctx.obj.get("profile"),
+        connection=role_conns_str,
+        operation=op_name,
+        params={"batch_size": batch_size or spec.batch_size, "on_conflict": spec.on_conflict.value},
+        mode="copy",
+        status="dry-run" if dry_run else "ok",
+        duration_ms=(time.monotonic() - started) * 1000,
+        actor=ctx.obj.get("actor"),
+    )
+    render_copy_report(report, title=f"{op_name}: {role_conns_str}")
+
+
+def _do_table_counts_diff(ctx, op, op_name, role_objs, started) -> None:
+    """Auto-gen `SELECT COUNT(*) FROM <t>` per declared table."""
+    from dbctl.audit import append
+    from dbctl.multi import run_table_counts
+    from dbctl.reports import render_side_by_side
+
+    if op.roles != ["src", "trg"]:
+        err_console.print(
+            f"[red]table_counts diff {op_name!r}: roles must be [src, trg], got {op.roles}[/red]"
+        )
+        raise SystemExit(2)
+    if op.diff is None or op.diff.tables is None:
+        err_console.print(f"[red]table_counts diff {op_name!r}: `diff.tables` list required[/red]")
+        raise SystemExit(2)
+
+    src_role, src_canonical, src_oc = role_objs[0]
+    trg_role, trg_canonical, trg_oc = role_objs[1]
+    results = run_table_counts(src_oc, trg_oc, op.diff.tables or [])
+
+    append(
+        profile=ctx.obj.get("profile"),
+        connection=f"{src_canonical}|{trg_canonical}",
+        operation=op_name,
+        params={},
+        mode="diff",
+        status="ok",
+        duration_ms=(time.monotonic() - started) * 1000,
+        actor=ctx.obj.get("actor"),
+    )
+    render_side_by_side(
+        results["src"],
+        results["trg"],
+        key=["t"],
+        show=op.diff.show if op.diff else None,
+        label_a=src_canonical,
+        label_b=trg_canonical,
+        title=f"{op_name}: {src_canonical} vs {trg_canonical}",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# sync-mode dispatch
+# --------------------------------------------------------------------------- #
+def _do_sync(ctx, op, op_name, role_objs, dry_run, delete_extras, started) -> None:
+    """Drive `run_sync` to converge trg table to match src."""
+    from dbctl.audit import append
+    from dbctl.multi import run_sync
+    from dbctl.reports import render_sync_report
+
+    if op.roles != ["src", "trg"]:
+        err_console.print(f"[red]sync operation {op_name!r}: roles must be [src, trg], got {op.roles}[/red]")
+        raise SystemExit(2)
+    if op.sync_spec is None:
+        err_console.print(f"[red]sync operation {op_name!r}: missing sync_spec[/red]")
+        raise SystemExit(2)
+    if not op.queries or "src" not in op.queries or "trg" not in op.queries:
+        err_console.print(
+            f"[red]sync operation {op_name!r}: requires queries.src (SELECT) + queries.trg (SELECT)[/red]"
+        )
+        raise SystemExit(2)
+
+    spec = op.sync_spec.model_copy()
+    if delete_extras is not None:
+        spec.delete_extras = bool(delete_extras)
+
+    src_role, _, src_oc = role_objs[0]
+    trg_role, _, trg_oc = role_objs[1]
+    if dry_run:
+        console.print(
+            f"[yellow]dry-run:[/yellow] diffing {src_role} → {trg_role} on "
+            f"{spec.target_table!r}; nothing will be written"
+        )
+    report = run_sync(src_oc, trg_oc, spec, op.queries, dry_run=dry_run)
+
+    role_conns_str = "|".join(ctx.params.get(r.upper(), r) or r for r in op.roles)
+    append(
+        profile=ctx.obj.get("profile"),
+        connection=role_conns_str,
+        operation=op_name,
+        params={"delete_extras": spec.delete_extras, "dry_run": dry_run},
+        mode="sync",
+        status="dry-run" if dry_run else "ok",
+        duration_ms=(time.monotonic() - started) * 1000,
+        actor=ctx.obj.get("actor"),
+    )
+    render_sync_report(report, title=f"{op_name}: {role_conns_str}")
+
+
+# --------------------------------------------------------------------------- #
+# validate-mode dispatch
+# --------------------------------------------------------------------------- #
+def _do_validate(ctx, op, op_name, role_objs, started) -> None:
+    """Drive `run_validate` to diff schemas (columns + types) src vs trg."""
+    from dbctl.audit import append
+    from dbctl.multi import run_validate
+    from dbctl.reports import render_validate_report
+
+    if op.roles != ["src", "trg"]:
+        err_console.print(
+            f"[red]validate operation {op_name!r}: roles must be [src, trg], got {op.roles}[/red]"
+        )
+        raise SystemExit(2)
+    if op.validate_spec is None:
+        err_console.print(f"[red]validate operation {op_name!r}: missing validate_spec[/red]")
+        raise SystemExit(2)
+
+    src_role, src_canonical, src_oc = role_objs[0]
+    trg_role, trg_canonical, trg_oc = role_objs[1]
+    report = run_validate(src_oc, trg_oc, op.validate_spec)
+
+    append(
+        profile=ctx.obj.get("profile"),
+        connection=f"{src_canonical}|{trg_canonical}",
+        operation=op_name,
+        params={
+            "tables": op.validate_spec.tables or [],
+            "include": op.validate_spec.include,
+            "exclude": op.validate_spec.exclude,
+        },
+        mode="validate",
+        status="ok" if not report.mismatches else "drift",
+        duration_ms=(time.monotonic() - started) * 1000,
+        actor=ctx.obj.get("actor"),
+    )
+    render_validate_report(report, title=f"{op_name}: {src_canonical} vs {trg_canonical}")
+
+
+# --------------------------------------------------------------------------- #
+# replay-mode dispatch
+# --------------------------------------------------------------------------- #
+def _do_replay(ctx, op, op_name, role_objs, batch_size, dry_run, started) -> None:
+    """Drive `run_replay` (copy + per-row transform)."""
+    from dbctl.audit import append
+    from dbctl.multi import run_replay  # noqa: F401 (CopyReport for typing)
+    from dbctl.reports import render_copy_report
+
+    if op.roles != ["src", "trg"]:
+        err_console.print(
+            f"[red]replay operation {op_name!r}: roles must be [src, trg], got {op.roles}[/red]"
+        )
+        raise SystemExit(2)
+    if op.replay_spec is None:
+        err_console.print(f"[red]replay operation {op_name!r}: missing replay_spec[/red]")
+        raise SystemExit(2)
+
+    src_role, _, src_oc = role_objs[0]
+    trg_role, _, trg_oc = role_objs[1]
+    if dry_run:
+        console.print(
+            f"[yellow]dry-run:[/yellow] replaying {src_role} → {trg_role} with transform "
+            f"{op.replay_spec.transform!r}; nothing will be written"
+        )
+    report = run_replay(src_oc, trg_oc, op.replay_spec, batch_size=batch_size, dry_run=dry_run)
+
+    role_conns_str = "|".join(ctx.params.get(r.upper(), r) or r for r in op.roles)
+    append(
+        profile=ctx.obj.get("profile"),
+        connection=role_conns_str,
+        operation=op_name,
+        params={
+            "batch_size": batch_size or op.replay_spec.batch_size,
+            "transform": op.replay_spec.transform,
+        },
+        mode="replay",
+        status="dry-run" if dry_run else "ok",
+        duration_ms=(time.monotonic() - started) * 1000,
+        actor=ctx.obj.get("actor"),
+    )
+    render_copy_report(report, title=f"{op_name}: {role_conns_str}")
 
 
 # --------------------------------------------------------------------------- #
@@ -568,9 +941,13 @@ def _aliases(conns):
 def _root_list(ctx: click.Context) -> list[str]:
     conns, ops = registries(ctx)
     static = ["connections", "operations", "status", "doctor", "init", "history", "tunnel"]
+    # multi-op operation-first top-level commands + deprecated verb-first groups
+    multi_ops = {n for n, o in ops.items() if o.scope.value == "multi"}
     multi_modes = {o.mode.value for o in ops.values() if o.scope.value == "multi"}
-    multi_commands = [m for m in ("diff", "compare", "sync") if m in multi_modes]
-    return sorted(set(static) | set(multi_commands) | set(conns) | set(_aliases(conns)))
+    verb_first_aliases = [
+        m for m in ("diff", "compare", "sync", "copy", "validate", "replay") if m in multi_modes
+    ]
+    return sorted(set(static) | set(multi_ops) | set(verb_first_aliases) | set(conns) | set(_aliases(conns)))
 
 
 def _root_get(ctx: click.Context, name: str):
@@ -586,10 +963,16 @@ def _root_get(ctx: click.Context, name: str):
     if name in static:
         return static[name]
     conns, ops = registries(ctx)
+    # Operation-first: a multi-op registered at the top level. Takes priority
+    # over a connection with the same name (the user controls both YAMLs;
+    # collision surfaces a `dbctl init` warning).
+    if name in ops and ops[name].scope.value == "multi":
+        return _make_multi_op_command(ops[name].mode.value, name, ops[name])
     if name in conns or name in _aliases(conns):
         return LazyConnGroup(name)
     multi_modes = {o.mode.value for o in ops.values() if o.scope.value == "multi"}
-    if name in {"diff", "compare", "sync"} and name in multi_modes:
+    # Deprecated verb-first alias: `dbctl diff user-count pg my` still works
+    if name in {"diff", "compare", "sync", "copy", "validate", "replay"} and name in multi_modes:
         return _make_multi_group(name, ops)
     return None
 
@@ -713,6 +1096,7 @@ def operations_validate(ctx, strict):
     """Validate operations.yaml by re-loading the registry and reporting
     any pydantic / yaml errors instead of crashing on `--help`."""
     from dbctl.config import operations_path
+    from dbctl.operations import OperationsFileError
     from dbctl.operations import load as load_ops
 
     path = operations_path(ctx.obj.get("profile"))
@@ -725,23 +1109,41 @@ def operations_validate(ctx, strict):
     errs = 0
     try:
         ops = load_ops(path=path)
-        console.print(f"[green]all {len(ops)} operations valid[/green]")
-        # surface any obviously-undeclared params / sql gaps
-        for name, op in ops.items():
-            is_fetched_single = op.scope.value == "single" and op.mode.value in {
-                "execute",
-                "fetch",
-                "fetch_one",
-            }
-            if is_fetched_single and not op.sql:
-                err_console.print(f"[red]{name}:[/red] mode {op.mode.value!r} but no sql")
-                errs += 1
-            if op.scope.value == "multi" and not op.queries:
-                err_console.print(f"[red]{name}:[/red] multi-scope but no queries")
-                errs += 1
-    except Exception as e:  # noqa: BLE001
+    except OperationsFileError as e:
+        # Per-op friendly lines + a tally; raises the exit code.
+        err_console.print(f"[red]operations.yaml:[/red] {e}")
+        errs += len(e.errors)
+        ops = e.valid
+    except Exception as e:  # noqa: BLE001 - YAML parse error, IO, etc.
         err_console.print(f"[red]{type(e).__name__}: {e}[/red]")
         errs += 1
+        ops = {}
+    else:
+        console.print(f"[green]all {len(ops)} operations valid[/green]")
+    # surface any obviously-undeclared params / sql gaps even when some
+    # operations failed to load (only the valid subset is checked here).
+    for name, op in ops.items():
+        is_fetched_single = op.scope.value == "single" and op.mode.value in {
+            "execute",
+            "fetch",
+            "fetch_one",
+        }
+        if is_fetched_single and not op.sql:
+            err_console.print(f"[red]{name}:[/red] mode {op.mode.value!r} but no sql")
+            errs += 1
+        if op.scope.value == "multi" and not op.queries:
+            # multi-DB modes that don't need explicit `queries:`
+            # because they introspect: copy (uses copy_spec),
+            # table_counts diff (builds SELECT COUNT(*) per table).
+            strategy = op.diff.strategy.value if op.diff else "custom"
+            needs_queries = not (
+                op.mode.value == "copy"
+                or strategy == "table_counts"
+                or op.mode.value in {"validate", "replay"}  # no queries needed
+            )
+            if needs_queries:
+                err_console.print(f"[red]{name}:[/red] multi-scope but no queries")
+                errs += 1
     raise SystemExit(0 if errs == 0 else 1)
 
 

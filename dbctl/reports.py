@@ -134,3 +134,97 @@ def _fmt_delta(d: Any) -> str:
     if d > 0:
         return f"[red]+{d}[/red]"
     return f"[green]{d}[/green]"
+
+
+def render_copy_report(report, *, title: str = "") -> None:
+    """Render a `CopyReport` (multi.run_copy) as a per-table summary.
+
+    Columns: table | src_rows | trg_inserted | skipped | ms | note
+    The total elapsed time + grand totals are appended as a footer line.
+    """
+    table = Table(title=title or "copy", header_style="bold cyan")
+    for col in ("table", "src_rows", "trg_inserted", "skipped", "ms", "note"):
+        table.add_column(col)
+    src_total = 0
+    ins_total = 0
+    skip_total = 0
+    for r in report.results:
+        color = "green" if r.trg_rows_inserted == r.src_rows or r.note == "dry-run" else "yellow"
+        table.add_row(
+            r.table,
+            str(r.src_rows),
+            f"[{color}]{r.trg_rows_inserted}[/{color}]",
+            str(r.skipped_existing),
+            f"{r.duration_ms:.1f}",
+            r.note,
+        )
+        src_total += r.src_rows
+        ins_total += r.trg_rows_inserted
+        skip_total += r.skipped_existing
+    _console.print(table)
+    _console.print(
+        f"[dim]total: {ins_total} inserted / {src_total} src rows / "
+        f"{skip_total} skipped in {report.total_ms:.1f}ms[/dim]"
+    )
+
+
+def render_sync_report(report, *, title: str = "") -> None:
+    """Render a per-table summary of a `SyncReport` (multi.run_sync).
+
+    Columns: table | src | trg | +ins | ~upd | -del | unchanged | ms | note
+    """
+    table = Table(title=title or "sync", header_style="bold cyan")
+    for col in ("table", "src", "trg", "+ins", "~upd", "-del", "unchanged", "ms", "note"):
+        table.add_column(col)
+    src_total = ins_total = upd_total = del_total = unchanged_total = 0
+    for r in report.results:
+        table.add_row(
+            r.table,
+            str(r.src_rows),
+            str(r.trg_rows),
+            f"[green]{r.inserted}[/green]" if r.inserted else "0",
+            f"[yellow]{r.updated}[/yellow]" if r.updated else "0",
+            f"[red]{r.deleted}[/red]" if r.deleted else "0",
+            str(r.unchanged),
+            f"{r.duration_ms:.1f}",
+            r.note,
+        )
+        src_total += r.src_rows
+        ins_total += r.inserted
+        upd_total += r.updated
+        del_total += r.deleted
+        unchanged_total += r.unchanged
+    _console.print(table)
+    _console.print(
+        f"[dim]total: {ins_total} inserted / {upd_total} updated / "
+        f"{del_total} deleted / {unchanged_total} unchanged in {report.total_ms:.1f}ms[/dim]"
+    )
+
+
+def render_validate_report(report, *, title: str = "") -> None:
+    """Render a `ValidateReport` (multi.run_validate) as a list of mismatches.
+
+    Columns: table | column | kind | src_type | trg_type
+    When there are zero mismatches, prints a green ✓ line instead of a table.
+    """
+    if not report.mismatches:
+        _console.print(
+            f"[green]✓[/green] [dim]{title or 'validate'}: "
+            f"{report.tables_compared} table(s) compared, no schema drift[/dim]"
+        )
+        return
+    table = Table(title=title or "validate", header_style="bold cyan")
+    for col in ("table", "column", "kind", "src_type", "trg_type"):
+        table.add_column(col)
+    for m in report.mismatches:
+        kind_color = {
+            "missing_in_trg": "yellow",
+            "missing_in_src": "yellow",
+            "type_mismatch": "red",
+        }.get(m.kind, "white")
+        table.add_row(m.table, m.column, f"[{kind_color}]{m.kind}[/{kind_color}]", m.src_type, m.trg_type)
+    _console.print(table)
+    _console.print(
+        f"[dim]{len(report.mismatches)} mismatch(es) across {report.tables_compared} "
+        f"table(s) in {report.duration_ms:.1f}ms[/dim]"
+    )

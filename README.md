@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="dbctl" width="200">
+</p>
+
 # dbctl
 
 `dbctl` is a small Python CLI for **monitoring, controlling, and administering
@@ -81,8 +85,8 @@ There is **no ad-hoc query command**. To run SQL through `dbctl` you must
 declare an operation in `operations.yaml` first — its name, its parameters
 (with types, descriptions, positional vs keyword), its SQL, and its mode
 (`execute` / `fetch` / `fetch_one` / `script` / `upsert` for single-DB;
-`diff` / `compare` / `sync` for multi-DB). The CLI then synthesises a Click
-subcommand per operation, so:
+`diff` / `compare` / `copy` / `sync` / `validate` / `replay` for multi-DB).
+The CLI then synthesises a Click subcommand per operation, so:
 
 - the `--help` for `<conn> <op>` is generated from the declared parameters;
 - parameters are type-checked before the SQL is ever rendered;
@@ -121,7 +125,7 @@ key agents, and MFA flows.
 `docker-compose.yml` brings up three databases (postgres on `:5433`, mysql on
 `:3307`, mssql on `:1434`) with the same four-table schema (`users`, `quotas`,
 `usage`, `logs`) and slightly different sample data — perfect for trying the
-multi-connection `diff` commands.
+multi-connection modes.
 
 ```bash
 docker compose up -d
@@ -142,8 +146,16 @@ dbctl pg add-user stephen 12 --show-sql        # dry-run (prints SQL)
 dbctl pg add-user stephen 12 --apply --yes     # commit (no prompt)
 dbctl pg increase-quota alice 10 --apply -y    # +10% on alice's quotas
 
-dbctl diff user-count pg my                    # multi-DB diff
-dbctl diff compare-quotas pg my Daily
+# multi-DB modes (operation-first, preferred since v0.6):
+dbctl user-count pg my                        # multi-DB diff
+dbctl compare-quotas pg my Daily
+dbctl table-counts pg my                      # auto-gen SELECT COUNT(*) per table
+dbctl copy-users pg my --dry-run              # simulate src → trg copy
+dbctl sync-users pg my --dry-run              # report insert/update/delete counts
+dbctl validate-schema pg my                   # detect column/type drift
+dbctl replay-users pg my --dry-run            # copy with a per-row transform
+# deprecated verb-first aliases still work:
+dbctl diff user-count pg my
 
 dbctl pg history                               # per-connection audit log
 dbctl pg again                                 # re-run last op on pg
@@ -321,8 +333,8 @@ dbctl/
     ├── tunnels/{ssm,ssh,direct}.py
     ├── db.py               # URL builder + password resolution + healthcheck
     ├── execute.py          # $name → :name, mode routing, bind_params
-    ├── multi.py            # per-role engine open + query runner for diffs
-    ├── reports.py          # rich tables / json / csv / yaml + diff rendering
+    ├── multi.py            # multi-DB orchestration: diff / compare / copy / sync / validate / replay
+    ├── reports.py          # rich tables / json / csv / yaml + diff + copy/sync/validate rendering
     ├── audit.py            # history.jsonl
     ├── runtime.py          # opened_conn() ctx-mgr (tunnel+engine+healthcheck)
     └── init.py             # dbctl init wizard
@@ -332,9 +344,12 @@ dbctl/
 
 ```bash
 uv sync --extra dev
-uv run ruff check dbctl tests   # lint
-uv run pytest tests/             # ~60 unit tests against in-memory SQLite
-uv run mypy dbctl                # type-check (pre-existing debt; non-blocking in CI)
+make help            # list all Makefile targets
+make check           # lint + unit tests (the pre-commit gate)
+make test            # unit tests (~75 tests, in-memory SQLite, no docker)
+make typecheck       # mypy strict (pre-existing debt; non-blocking)
+make smoke           # docker compose up + dbctl doctor against the fleet
+make build           # wheel + sdist via uv
 ```
 
 The unit tests use an in-memory SQLite database so they run without docker.
@@ -343,11 +358,11 @@ For a live end-to-end smoke test, `docker compose up -d` and follow the
 
 ## Roadmap
 
-- `mode: upsert` (autoload target table, dialect-aware `ON CONFLICT` / `ON DUPLICATE KEY`)
 - `mode: script` (multi-statement support beyond single-statement passthrough)
+- `diff.strategy: table_counts` introspected-intersection variant (`*`)
 - Multi-file operations loader (`.dbctl/operations/<name>.yaml`)
 - Dynamic identifier interpolation (`${var}`) for table/column names in diff ops
-- `dbctl compare` and `dbctl sync` modes (the framework is ready; sample ops not shipped)
+- Bidirectional `sync` with conflict arbitration (current `sync` is src → trg only)
 - Tag-based operation filtering (`dbctl pg --tag user-mgmt <op>`)
 - SSH agent / MFA support surfacing through the existing `ssh` subprocess
 

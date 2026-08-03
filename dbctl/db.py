@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import re as _re
 import time
 from typing import TYPE_CHECKING
 
@@ -146,10 +147,48 @@ def healthcheck(engine: Engine, query: str, timeout: float) -> tuple[bool, float
         elapsed_ms = (time.monotonic() - started) * 1000.0
         return True, elapsed_ms, "ok"
     except (OperationalError, SQLAlchemyError) as e:
-        msg = str(e.orig) if getattr(e, "orig", None) is not None else str(e)
-        return False, 0.0, msg.split("\n", 1)[0][:200]
+        # `e.orig` is the underlying DBAPI exception (psycopg / pymysql /
+        # pyodbc) — its str() is the clearest message for users. Clean up
+        # the SQLAlchemy + driver wrap so the stderr line reads as plain
+        # English (e.g. "password authentication failed for user 'app_admin'").
+        raw = e.orig if getattr(e, "orig", None) is not None else e
+        msg = fmt_db_error(raw)
+        # Most DBAPIs wrap the real reason in a connection-failure preamble
+        # ("connection to server at ..., port N failed: <real reason>"). The
+        # real reason itself is often prefixed with "FATAL:" / "ERROR:" —
+        # extract that. Falls back to the full cleaned message.
+        m = _re.search(r"\b(FATAL|ERROR):\s*(.+)$", msg, flags=_re.DOTALL)
+        if m:
+            msg = m.group(2).strip()
+        else:
+            # Otherwise peel the "connection ... failed:" preamble once.
+            preamble = _re.search(r"failed:\s*(.+)$", msg, flags=_re.DOTALL)
+            if preamble and len(preamble.group(1)) < len(msg):
+                msg = preamble.group(1).strip()
+        return False, 0.0, msg[:200]
     except Exception as e:  # noqa: BLE001
         return False, 0.0, f"{type(e).__name__}: {e}"
 
 
-__all__ = ["build_engine", "resolve_password", "healthcheck", "DBError", "text"]
+def fmt_db_error(e: BaseException) -> str:
+    """Render a clean one-line message from a DB/SQLAlchemy error.
+
+    SQLAlchemyError ``str()`` includes a multi-line dump with the driver
+    class prefix (``"(psycopg.OperationalError)"``) and a
+    ``(Background on this error at: https://sqlalche.me/...)"`` trailer —
+    fine for a stack trace, noisy for a CLI user. We strip both so the
+    stderr line reads as plain English.
+
+    Pass through a plain ``RuntimeError`` (e.g. ``DBError``) unchanged.
+    """
+    msg = str(e)
+    # Drop the leading "(<driver>.<ExceptionName>)" wrap, if present.
+    msg = _re.sub(r"^\([A-Za-z_][A-Za-z0-9_.]*\)\s*", "", msg)
+    # Drop the "(Background on this error at: ...)" trailer.
+    msg = _re.sub(r"\s*\(Background on this error at:.*\)\s*$", "", msg, flags=_re.DOTALL)
+    # Collapse internal newlines/tabs to single spaces.
+    msg = _re.sub(r"\s+", " ", msg).strip()
+    return msg
+
+
+__all__ = ["build_engine", "resolve_password", "healthcheck", "DBError", "fmt_db_error", "text"]

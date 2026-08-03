@@ -18,8 +18,12 @@ There are two scopes:
 
 - **`single`** — runs against one connection as `dbctl <conn> <op> ...`.
 - **`multi`** — runs against the role-listed connections as
-  `dbctl <verb> <op> <conn-a> <conn-b> ...`, where `<verb>` is the operation's
-  `mode` (`diff` / `compare` / `sync`).
+  `dbctl <op> <conn-a> <conn-b> ...` (operation-first form, preferred since
+  v0.6.0) or, as a deprecated alias, `dbctl <verb> <op> <conn-a> <conn-b> ...`
+  where `<verb>` is the operation's `mode` (`diff` / `compare` / `copy` /
+  `sync` / `validate` / `replay`). Operation-first commands emit no
+  deprecation warning; verb-first commands emit Click's standard
+  deprecation notice pointing at the operation-first form.
 
 ## Common fields
 
@@ -112,10 +116,18 @@ sql: |
 
 ## `mode` (multi-scope)
 
-A multi-scope operation declares `roles` and one `queries.<role>` entry per
-role. The CLI builds a top-level group **per distinct mode** (`diff`,
-`compare`, `sync`), with one subcommand per op. Connections are passed
-positionally in the declared role order.
+A multi-scope operation declares `roles` and (for most modes) one
+`queries.<role>` entry per role. The roles default to `[src, trg]` for the
+two-connection modes (`diff` / `compare` / `copy` / `sync` / `validate` /
+`replay`); the operation-first form is the same in every case:
+
+```bash
+dbctl <op> <src-conn> <trg-conn> [flags...]
+```
+
+The deprecated verb-first alias wraps each mode under a top-level group
+(`dbctl diff <op> ...`, `dbctl copy <op> ...`, …) for backwards
+compatibility with v0.5 scripts.
 
 ### `diff`
 
@@ -135,7 +147,7 @@ operations:
 ```
 
 - `roles` becomes the list of leading positional args of the
-  `dbctl diff <op>` subcommand.
+  `dbctl <op>` subcommand.
 - `queries.<role>` runs against the connection passed at that role position.
 - `diff.key` joins the two result sets; rows missing from either side are
   shown with a `∅` marker and counted in a "rows only in …" footnote.
@@ -145,8 +157,10 @@ operations:
 Invocation:
 
 ```bash
+dbctl user-count pg my
+dbctl user-count pg my --show-sql   # print per-role SQL before running
+# deprecated alias:
 dbctl diff user-count pg my
-dbctl diff user-count pg my --show-sql   # print per-role SQL before running
 ```
 
 Output (rich table):
@@ -159,21 +173,182 @@ Output (rich table):
 └────────┴──────────┴──────────┴─────┘
 ```
 
-### `compare` / `sync`
+#### `table_counts` strategy (no per-table SQL)
 
-Reserved in v1 — the framework will follow the same shape as `diff`:
+For the common "row counts of every table" diff, set
+`diff.strategy: table_counts` and list the tables. `dbctl` auto-generates
+`SELECT '<t>' AS t, COUNT(*) AS n FROM <t>` per table per role, so no
+`queries:` block is needed:
 
 ```yaml
 operations:
-  sync-feature-flags:
+  table-counts:
+    scope: multi
+    mode: diff
+    roles: [src, trg]
+    diff:
+      strategy: table_counts
+      tables: [users, quotas, usage, logs]   # explicit list (no `["*"]`)
+      key: [t]
+      show: [n]
+```
+
+> NOTE: `table_counts` does **not** support the `tables: ["*"]` introspection
+> shorthand — that's only available on `copy` / `replay`. List the tables
+> explicitly. The introspected-intersection variant is on the roadmap.
+
+### `compare`
+
+A row-level result comparison; same shape as `diff` (one `queries.<role>`
+block per role) but intended for full result sets rather than aggregates.
+Reserved `compare_spec` (key + `sample_mismatches`) is accepted by the
+schema but the runtime currently routes through the same `run_role` path
+as `diff` and renders with `render_side_by_side`.
+
+### `copy`
+
+Bulk-copy rows from `src` to `trg`, table by table, in batches. Works
+cross-dialect (rows are read into Python `dict`s via SQLAlchemy mappings
+and re-inserted via `executemany` on the destination engine). No
+`queries:` block is needed — the SELECT is built from `copy_spec.tables`.
+
+```yaml
+operations:
+  copy-users:
+    description: "Bulk-copy users table src → trg (batches of 1000)"
+    scope: multi
+    mode: copy
+    roles: [src, trg]
+    copy_spec:
+      batch_size: 1000
+      tables: [users]          # omit `tables:` to introspect all src tables
+      on_conflict: error       # error | skip | update | truncate
+      # where:                 # optional per-table WHERE pushed into src SELECT
+      #   users: "is_active = true"
+      #   "*": "created_at >= '2025-01-01'"
+      # truncate_first: false  # or pass --on-conflict truncate on the CLI
+```
+
+CLI flags (auto-emitted when `copy_spec` is present):
+
+| flag                       | effect |
+|----------------------------|--------|
+| `--batch-size N`           | override `copy_spec.batch_size` |
+| `--on-conflict error\|skip\|update\|truncate` | override `copy_spec.on_conflict` (`truncate` is a CLI shortcut for `truncate_first: true` + `on_conflict: error`) |
+| `--dry-run / --no-dry-run` | read src + simulate inserts; write nothing to trg |
+
+Conflict handling is dialect-aware:
+
+- **`error`** (default) — let the driver raise on the first PK conflict.
+- **`skip`** — `INSERT … ON CONFLICT DO NOTHING` (Postgres) / `INSERT IGNORE`
+  (MySQL/MariaDB) / per-row `NOT EXISTS` guard (MSSQL).
+- **`update`** — upsert: Postgres `ON CONFLICT DO UPDATE` is refused without
+  a PK declaration (use `truncate` instead); MySQL uses
+  `ON DUPLICATE KEY UPDATE`. For a clean refresh use `truncate`.
+- **`truncate`** — TRUNCATE the target table first (MySQL disables
+  `FOREIGN_KEY_CHECKS`; Postgres uses `RESTART IDENTITY CASCADE`; other
+  dialects fall back to `DELETE` if `TRUNCATE` fails).
+
+```bash
+dbctl copy-users pg my --dry-run                    # simulate first
+dbctl copy-users pg my --on-conflict truncate       # refresh trg from src
+```
+
+### `sync`
+
+Converge one `target_table` on `trg` to match `src`: insert missing rows,
+update differing non-key columns, and (with `--delete-extras`) delete
+trg-only rows. Both `queries.src` and `queries.trg` must SELECT the same
+column shape; `sync_spec.key` identifies rows.
+
+```yaml
+operations:
+  sync-users:
     scope: multi
     mode: sync
     roles: [src, trg]
-    parameters:
-      - { name: table, type: string, required: true, position: 1 }
     queries:
-      src: "SELECT key, enabled FROM feature_flags"
-      trg: "INSERT INTO $table ...; -- derived from src"
+      src: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
+      trg: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
+    sync_spec:
+      key: [id]
+      target_table: users
+      delete_extras: false             # CLI `--delete-extras` overrides per run
+      batch_size: 10000
+```
+
+Direction is **src → trg only** (make-trg-match-src); true bidirectional
+merge with conflict arbitration is out of scope. Diffing happens in
+Python after both queries return; writes are batched via `executemany`.
+
+| flag                            | effect |
+|---------------------------------|--------|
+| `--dry-run / --no-dry-run`      | diff src vs trg and report counts without writing |
+| `--delete-extras / --no-delete-extras` | override `sync_spec.delete_extras` for this run |
+
+```bash
+dbctl sync-users pg my --dry-run            # report insert/update/delete counts
+dbctl sync-users pg my --delete-extras      # also remove trg-only rows
+```
+
+### `validate`
+
+Structural schema diff: compare columns (name + type) for each table
+present in both schemas via SQLAlchemy `inspect()`. No `queries:`
+block — `dbctl` introspects both engines itself.
+
+```yaml
+operations:
+  validate-schema:
+    scope: multi
+    mode: validate
+    roles: [src, trg]
+    validate_spec:
+      tables: [users, quotas, usage, logs]   # null = introspect intersection
+      # include: []                          # only these column names
+      # exclude: [created_at]                # drop these column names from the diff
+```
+
+A clean schema prints a green `✓` line; mismatches render as a per-column
+table tagged `missing_in_trg` / `missing_in_src` / `type_mismatch`. The
+audit entry's `status` is `ok` (no drift) or `drift`.
+
+```bash
+dbctl validate-schema pg my
+```
+
+### `replay`
+
+Bulk-copy with a per-row Python transform applied before writing to trg.
+Reuses the `copy` machinery; the transform resolves to a
+`Callable[[dict], dict]` via dotted import path.
+
+```yaml
+operations:
+  replay-users:
+    scope: multi
+    mode: replay
+    roles: [src, trg]
+    replay_spec:
+      tables: [users]                # null = introspect src
+      batch_size: 500
+      where: {}                      # per-table WHERE (same shape as copy_spec)
+      transform: identity            # "identity" = no-op, or "package.module:callable"
+```
+
+A non-`identity` transform is imported in-process — it must not reach
+across connections, and must return a `dict` (raising otherwise). Good
+for redacting PII, normalising enums, or computing derived columns
+before the insert.
+
+| flag                        | effect |
+|-----------------------------|--------|
+| `--batch-size N`            | override `replay_spec.batch_size` |
+| `--dry-run / --no-dry-run`  | read src + simulate inserts; write nothing |
+
+```bash
+dbctl replay-users pg my --dry-run
+dbctl replay-users pg my --batch-size 200
 ```
 
 ## Operations are dialect-specific
@@ -310,3 +485,14 @@ operations:
 
 For `fetch` / `fetch_one` modes the confirm gate is irrelevant — they always
 run read-only.
+
+### Multi-scope dry-run flags
+
+The two-connection write modes (`copy` / `sync` / `replay`) all honour
+`--dry-run`, which reads from `src` and computes the would-be writes
+without opening a write transaction on `trg`. The audit entry's `status`
+is recorded as `dry-run`. `--apply` is **not** required for these modes —
+unlike single-scope `execute`, the dry-run is opt-in (the default is to
+commit) because the SQL is generated, not user-supplied, and the
+dry-run/commit dialect-handling lives in the multi runtime rather than
+the confirm gate. Pass `--dry-run` first when verifying a new operation.
