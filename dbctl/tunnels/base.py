@@ -49,24 +49,40 @@ def _terminate(proc: subprocess.Popen) -> None:
             proc.wait(timeout=5)
 
 
-def build_tunnel(conn: Connection) -> Tunnel:
+def build_tunnel(conn: Connection, *, override_port: int | None = None) -> Tunnel:
+    """Construct a Tunnel for the connection's type.
+
+    ``override_port`` lets the CLI (e.g. ``tunnel open --port 1234``) pin
+    the local bind port even when the config says ``local_port: 0`` (auto).
+    For ``direct`` tunnels the override replaces the upstream port (useful
+    for pointing at a different port than the config declares).
+    """
     from dbctl.tunnels.direct import DirectTunnel as _Direct
-    from dbctl.tunnels.k8s import K8sTunnel as _K8s
+    from dbctl.tunnels.k8s import K8sTunnel as _K8k
     from dbctl.tunnels.ssh import SshTunnel as _Ssh
     from dbctl.tunnels.ssm import SsmTunnel as _Ssm
 
     match conn.type.value:
         case "ssm":
             assert conn.ssm
+            if override_port is not None:
+                # Mutate a copy so the original config is untouched.
+                conn.ssm = conn.ssm.model_copy(update={"local_port": override_port})
             return _Ssm(conn.ssm)
         case "ssh":
             assert conn.ssh
+            if override_port is not None:
+                conn.ssh = conn.ssh.model_copy(update={"local_port": override_port})
             return _Ssh(conn.ssh)
         case "k8s":
             assert conn.k8s
-            return _K8s(conn.k8s)
+            if override_port is not None:
+                conn.k8s = conn.k8s.model_copy(update={"local_port": override_port})
+            return _K8k(conn.k8s)
         case "direct":
             assert conn.direct
+            if override_port is not None:
+                conn.direct = conn.direct.model_copy(update={"port": override_port})
             return _Direct(conn.direct)
         case _:  # pragma: no cover - exhaustive
             raise ValueError(f"unknown tunnel type {conn.type!r}")

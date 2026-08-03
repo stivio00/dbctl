@@ -1279,13 +1279,36 @@ def history_show(ctx, run_id):
 
 @main.group("tunnel")
 def tunnel_cmd():
-    """Hold a tunnel open for ad-hoc work."""
+    """Open, test, or list database tunnels.
+
+    \b
+    Tunnels connect dbctl to databases that aren't directly reachable:
+    - ssm:    AWS SSM port-forward through an EC2 bastion
+    - ssh:    Classic ssh -N -L port-forward through a bastion
+    - k8s:    kubectl port-forward to a Service or Pod
+    - direct: No tunnel — connect to upstream host:port
+
+    \b
+    Subcommands:
+    - tunnel open <conn> [--port N]   Hold a tunnel open for ad-hoc work
+    - tunnel test <conn>               Open + healthcheck + close, report OK/FAIL
+    - tunnel list                      List all connections with tunnel info
+    """
 
 
 @tunnel_cmd.command("open")
 @click.argument("name")
+@click.option(
+    "-p",
+    "--port",
+    "port",
+    type=click.INT,
+    default=None,
+    help="Override the local bind port (even if config says 0 = auto).",
+)
 @click.pass_context
-def tunnel_open(ctx, name):
+def tunnel_open(ctx, name, port):
+    """Hold a tunnel open for ad-hoc work (Ctrl-C to close)."""
     from dbctl.connections import resolve
 
     conns, _ = registries(ctx)
@@ -1296,8 +1319,12 @@ def tunnel_open(ctx, name):
         raise SystemExit(2)
     from dbctl.tunnels.base import build_tunnel
 
-    tun = build_tunnel(c)
-    tun.__enter__()
+    tun = build_tunnel(c, override_port=port)
+    try:
+        tun.__enter__()
+    except RuntimeError as e:
+        err_console.print(f"[red]tunnel error:[/red] {e}")
+        raise SystemExit(3)
     console.print(f"[green]tunnel open:[/green] {tun.local_host}:{tun.local_port} -> {canonical}")
     console.print("[dim]Ctrl-C to close...[/dim]")
     try:
@@ -1307,6 +1334,102 @@ def tunnel_open(ctx, name):
         pass
     finally:
         tun.__exit__(None, None, None)
+
+
+@tunnel_cmd.command("test")
+@click.argument("name")
+@click.pass_context
+def tunnel_test(ctx, name):
+    """Open the tunnel, run the healthcheck, and close it. Reports OK or FAIL."""
+    from dbctl.connections import resolve
+    from dbctl.db import build_engine, healthcheck
+    from dbctl.tunnels.base import build_tunnel
+
+    conns, _ = registries(ctx)
+    try:
+        canonical, c = resolve(name, conns)
+    except KeyError as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+
+    tun = build_tunnel(c)
+    started = time.monotonic()
+    try:
+        tun.__enter__()
+    except RuntimeError as e:
+        elapsed = (time.monotonic() - started) * 1000
+        err_console.print(f"[red]FAIL[/red] {canonical} tunnel: {e} ({elapsed:.0f}ms)")
+        raise SystemExit(3)
+
+    try:
+        engine = build_engine(c, tun)
+    except Exception as e:  # noqa: BLE001 - DBError, ImportError, etc.
+        tun.__exit__(None, None, None)
+        elapsed = (time.monotonic() - started) * 1000
+        err_console.print(f"[red]FAIL[/red] {canonical} engine: {e} ({elapsed:.0f}ms)")
+        raise SystemExit(4)
+
+    ok, latency_ms, msg = healthcheck(engine, c.healthcheck.query, c.healthcheck.timeout_seconds)
+    tun.__exit__(None, None, None)
+    total_ms = (time.monotonic() - started) * 1000
+
+    if ok:
+        console.print(
+            f"[green]OK[/green] {canonical} via {c.type.value} "
+            f"({tun.local_host}:{tun.local_port}) — {msg} ({latency_ms:.1f}ms, total {total_ms:.0f}ms)"
+        )
+    else:
+        err_console.print(f"[red]FAIL[/red] {canonical} healthcheck: {msg} ({total_ms:.0f}ms)")
+        raise SystemExit(5)
+
+
+@tunnel_cmd.command("list")
+@click.pass_context
+def tunnel_list(ctx):
+    """List all connections with their tunnel type and key parameters."""
+    conns, _ = registries(ctx)
+    if not conns:
+        console.print("[dim]no connections configured[/dim]")
+        return
+
+    from rich.table import Table as _Table
+
+    table = _Table(title="tunnels", header_style="bold cyan")
+    table.add_column("name")
+    table.add_column("type")
+    table.add_column("driver")
+    table.add_column("info")
+
+    for name, c in sorted(conns.items()):
+        ttype = c.type.value
+        driver = c.driver or "(from url)"
+        info_parts = []
+        if ttype == "direct":
+            assert c.direct
+            info_parts.append(f"host={c.direct.host}:{c.direct.port}")
+        elif ttype == "ssm":
+            assert c.ssm
+            if c.ssm.bastion_instance_id:
+                info_parts.append(f"bastion={c.ssm.bastion_instance_id}")
+            elif c.ssm.bastion_tags:
+                info_parts.append(f"bastion_tags={dict(c.ssm.bastion_tags)}")
+            info_parts.append(f"remote={c.ssm.remote_host}:{c.ssm.remote_port}")
+            if c.ssm.region:
+                info_parts.append(f"region={c.ssm.region}")
+        elif ttype == "ssh":
+            assert c.ssh
+            info_parts.append(f"bastion={c.ssh.user}@{c.ssh.host}:{c.ssh.port}")
+            info_parts.append(f"remote={c.ssh.remote_host}:{c.ssh.remote_port}")
+        elif ttype == "k8s":
+            assert c.k8s
+            info_parts.append(f"context={c.k8s.context}")
+            info_parts.append(f"target={c.k8s.target}")
+            if c.k8s.namespace:
+                info_parts.append(f"ns={c.k8s.namespace}")
+            info_parts.append(f"port={c.k8s.remote_port}")
+        table.add_row(name, ttype, driver, ", ".join(info_parts))
+
+    console.print(table)
 
 
 # --------------------------------------------------------------------------- #

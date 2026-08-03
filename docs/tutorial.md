@@ -585,6 +585,15 @@ tunnel open: 127.0.0.1:5433 -> pg
 Ctrl-C to close...
 ```
 
+Override the local port with `--port` (even if the config says `local_port: 0`
+= auto-pick):
+
+```bash
+▶ uv run dbctl tunnel open pg --port 15432
+tunnel open: 127.0.0.1:15432 -> pg
+Ctrl-C to close...
+```
+
 In another shell, use that local bind with your favourite client:
 
 ```bash
@@ -593,6 +602,28 @@ PGPASSWORD=$DBCTL_PG_PASSWORD psql -h 127.0.0.1 -p 5433 -U app_admin -d app
 
 The tunnel is torn down cleanly when you Ctrl-C the `dbctl tunnel open`
 process — an `atexit` fallback covers hard kills.
+
+### `tunnel test` — open + healthcheck + close
+
+```bash
+▶ uv run dbctl tunnel test pg
+OK pg via direct (127.0.0.1:5433) — ok (31.2ms, total 185ms)
+```
+
+Opens the tunnel, runs the connection's healthcheck query, then closes the
+tunnel. Prints `OK` (green) with latency on success, or `FAIL` (red) with
+a clean error message on failure. Exit codes: 0 success, 2 unknown conn,
+3 tunnel error, 4 engine error, 5 healthcheck failed.
+
+### `tunnel list` — show all tunnels at a glance
+
+```bash
+▶ uv run dbctl tunnel list
+```
+
+Lists every configured connection with its tunnel type (`ssm`/`ssh`/`k8s`/
+`direct`), driver, and key parameters (bastion, remote host, port, region,
+context/namespace for k8s).
 
 ---
 

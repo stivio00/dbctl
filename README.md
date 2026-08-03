@@ -161,6 +161,9 @@ dbctl pg history                               # per-connection audit log
 dbctl pg again                                 # re-run last op on pg
 
 dbctl tunnel open pg                           # hold tunnel for ad-hoc psql
+dbctl tunnel open pg --port 15432              # override the local bind port
+dbctl tunnel test pg                           # open + healthcheck + close, report OK/FAIL
+dbctl tunnel list                              # list all connections + tunnel info
 ```
 
 > SQL Server needs an installed ODBC driver on the host (`ODBC Driver 18 for

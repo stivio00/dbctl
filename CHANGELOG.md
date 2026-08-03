@@ -5,6 +5,37 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] — 2026-08-03
+
+### Added
+
+- **`tunnel open --port`/`-p` flag** — override the local bind port even
+  when the config says `local_port: 0` (auto-pick). Works for `ssm` /
+  `ssh` / `k8s` tunnels (creates a local listener on the chosen port) and
+  `direct` (changes which upstream port SQLAlchemy connects to).
+- **`tunnel test <conn>` subcommand** — opens the tunnel, runs the
+  connection's healthcheck query, then closes the tunnel. Prints
+  `OK <conn> via <type> (host:port) — ok (latency, total)` (green) on
+  success or `FAIL <conn> <stage>: <msg>` (red) on failure. Exit codes
+  match the existing convention: 2 unknown conn, 3 tunnel error, 4 engine
+  error, 5 healthcheck failed.
+- **`tunnel list` subcommand** — lists every configured connection with
+  its tunnel type (`ssm` / `ssh` / `k8s` / `direct`), driver, and key
+  parameters in a rich table. For `ssm`: bastion id/tags, remote
+  host:port, region. For `ssh`: bastion user@host:port, remote
+  host:port. For `k8s`: context, target, namespace, remote port. For
+  `direct`: host:port.
+- **`tunnel` group help** — `dbctl tunnel --help` now explains the four
+  tunnel types (ssm/ssh/k8s/direct) and lists the three subcommands
+  (open/test/list) with one-liner descriptions.
+
+### Changed
+
+- `build_tunnel()` in `dbctl/tunnels/base.py` accepts an optional
+  `override_port` parameter; the CLI `tunnel open --port` flag flows
+  through to it. The override is applied via `model_copy(update=)` so
+  the original config object is not mutated.
+
 ## [0.6.3] — 2026-08-03
 
 ### Added
