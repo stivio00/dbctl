@@ -8,14 +8,14 @@
 multiple databases** through a single declarative config. It is built for
 operators who manage a **database explosion** — the same application deployed
 across several environments (dev / test / int / prod) and several tenants
-(Germany / USA / India / …) — where administering a row means opening a GUI
+(tenant1 / tenant2 / tenant3 / …) — where administering a row means opening a GUI
 client, navigating a connection tree, opening a tunnel, and clicking through
 to the right schema. `dbctl` replaces that multi-click flow with one command:
 
 ```text
-dbctl prod-de increase-quota alice 10 --apply     # bump a user's quota, in prod, Germany
-dbctl prod-us increase-quota alice 10 --apply     # same op, different tenant
-dbctl int-in  doctor                              # healthcheck integration India
+dbctl prod-tenant1 increase-credits alice 10 --apply     # bump a user's credits, in prod, tenant1
+dbctl prod-tenant2 increase-credits alice 10 --apply     # same op, different tenant
+dbctl int-tenant3  doctor                                # healthcheck integration tenant3
 ```
 
 Every connection's tunnel (`ssm` / `ssh` / `k8s` / `direct`), credentials,
@@ -35,7 +35,7 @@ leaving the terminal.
 | Ad-hoc SQL with no audit trail                      | Every run appended to `~/.dbctl/history.jsonl` (secrets redacted) |
 | "What can I run here?" is whatever you remember     | Operations are declared + versioned; `--help` lists them |
 | DML is one `Ctrl-Enter` away                        | DML is **dry-run by default** until `--apply`; `--yes` skips the prompt |
-| No cross-DB diff                                     | `dbctl diff user-count prod-de int-de`        |
+| No cross-DB diff                                     | `dbctl diff user-count prod-tenant1 int-tenant1`        |
 
 `dbctl` is **not** a schema browser or a query playground — it deliberately
 has no ad-hoc query command. Declaring operations in YAML keeps "what can be
@@ -66,7 +66,7 @@ dbctl pg add-user stephen 12 --apply
 dbctl pg list-users 20
 dbctl pg info row_counts
 dbctl diff user-count pg my
-dbctl diff compare-quotas pg my Daily
+dbctl diff compare-credits pg my Daily
 dbctl doctor
 dbctl history list
 ```
@@ -123,7 +123,7 @@ key agents, and MFA flows.
 > `dbctl` at real AWS RDS via SSM.
 
 `docker-compose.yml` brings up three databases (postgres on `:5433`, mysql on
-`:3307`, mssql on `:1434`) with the same four-table schema (`users`, `quotas`,
+`:3307`, mssql on `:1434`) with the same four-table schema (`users`, `credits`,
 `usage`, `logs`) and slightly different sample data — perfect for trying the
 multi-connection modes.
 
@@ -144,11 +144,11 @@ dbctl pg info row_counts
 dbctl pg list-users 10
 dbctl pg add-user stephen 12 --show-sql        # dry-run (prints SQL)
 dbctl pg add-user stephen 12 --apply --yes     # commit (no prompt)
-dbctl pg increase-quota alice 10 --apply -y    # +10% on alice's quotas
+dbctl pg increase-credits alice 10 --apply -y    # +10% on alice's credits
 
 # multi-DB modes (operation-first, preferred since v0.6):
 dbctl user-count pg my                        # multi-DB diff
-dbctl compare-quotas pg my Daily
+dbctl compare-credits pg my Daily
 dbctl table-counts pg my                      # auto-gen SELECT COUNT(*) per table
 dbctl copy-users pg my --dry-run              # simulate src → trg copy
 dbctl sync-users pg my --dry-run              # report insert/update/delete counts
@@ -203,8 +203,8 @@ Operations are global — every connection sees them. Declare one:
 ```yaml
 # ~/.dbctl/operations.yaml
 operations:
-  reset-quota:
-    description: "Reset a user's daily quota back to their yearly baseline"
+  reset-credits:
+    description: "Reset a user's daily credits back to their yearly baseline"
     scope: single
     mode: execute
     confirm: true
@@ -213,15 +213,15 @@ operations:
       - { name: floor,  type: integer, default: 10,   position: 2, description: "Don't reset below this floor" }
     sql: |
       UPDATE users
-         SET quota_daily = GREATEST($floor, quota_yearly / 365)
+         SET credits_daily = GREATEST($floor, credits_yearly / 365)
        WHERE name = $name
 ```
 
 Then:
 
 ```bash
-dbctl pg reset-quota alice --show-sql        # preview
-dbctl pg reset-quota alice --apply --yes     # commit
+dbctl pg reset-credits alice --show-sql        # preview
+dbctl pg reset-credits alice --apply --yes     # commit
 ```
 
 `$name` and `$floor` are rewritten to SQLAlchemy bind-params (`:name`,

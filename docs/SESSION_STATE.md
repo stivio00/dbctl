@@ -21,7 +21,7 @@ linked from the README. No code touched in that last step.
   audit.py, runtime.py, init.py, __main__.py
 - `tests/` — 26 tests; `test_smoke.py` (15) + `test_bastion_tags.py` (11)
 - `docker-compose.yml` — postgres :5433, mysql :3307, mssql :1434
-- `seed/{postgres,mysql,mssql}.sql` — users/quotas/usage/logs schema + sample data
+- `seed/{postgres,mysql,mssql}.sql` — users/credits/usage/logs schema + sample data
 - `.dbctl/{connections,operations}.yaml` — sample config with pg/my/ms direct
   + pg-ssm and pg-ssh reference templates
 - docs/: README.md (links to tutorial), CHANGELOG.md, DESIGN.md,
@@ -123,4 +123,4 @@ uv run dbctl history list
 with 5 connections: `pg`, `my`, `ms` (direct), `pg-ssh`, `pg-ssm` (reference
 templates, read-only). `~/.dbctl/operations.yaml` is a copy with 6 operations:
 `add-user`, `list-users`, `find-user`, `report-logs`, `user-count`,
-`compare-quotas`.
+`compare-credits`.

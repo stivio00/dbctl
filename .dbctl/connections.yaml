@@ -23,7 +23,7 @@ connections:
           FROM pg_stat_user_tables
           ORDER BY n_live_tup DESC LIMIT 10
       - name: top_users
-        query: "SELECT name, quota_daily, is_active FROM users ORDER BY quota_daily DESC LIMIT 10"
+        query: "SELECT name, credits_daily, is_active FROM users ORDER BY credits_daily DESC LIMIT 10"
     safety:
       confirm: true
       read_only: false
@@ -41,7 +41,7 @@ connections:
     healthcheck: { query: "SELECT 1" }
     info:
       - name: top_users
-        query: "SELECT name, quota_daily, is_active FROM users ORDER BY quota_daily DESC LIMIT 10"
+        query: "SELECT name, credits_daily, is_active FROM users ORDER BY credits_daily DESC LIMIT 10"
     safety:
       confirm: true
       read_only: false
@@ -62,7 +62,7 @@ connections:
     healthcheck: { query: "SELECT 1" }
     info:
       - name: top_users
-        query: "SELECT TOP 10 name, quota_daily, is_active FROM dbo.users ORDER BY quota_daily DESC"
+        query: "SELECT TOP 10 name, credits_daily, is_active FROM dbo.users ORDER BY credits_daily DESC"
     safety:
       confirm: true
       read_only: true

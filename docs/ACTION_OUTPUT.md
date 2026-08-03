@@ -13,7 +13,7 @@ broken, what is left".
    (`uv run ruff check dbctl tests` → all clean; `uv run pytest tests/` →
    15 passed).
 4. **Re-verified the CLI surface** end-to-end (`dbctl --help`, `dbctl diff
-   user-count --help`, `dbctl diff compare-quotas --help`, `dbctl pg
+   user-count --help`, `dbctl diff compare-credits --help`, `dbctl pg
    add-user --help`, `dbctl pg add-user stephen 12 --show-sql` — dry-run path
    all green).
 5. **Wrote the documentation set**: `README.md`, `docs/DESIGN.md`,
@@ -35,7 +35,7 @@ broken, what is left".
 | 10 | `dbctl/multi.py`   | low        | `run_role`'s error message referenced `op.scope!r` ("operation OpScope.multi has no query for role 'src'") which is confusing. | Now reports declared roles and the keys actually present in `queries`. |
 | 11 | `dbctl/runtime.py`  | high       | `registries()` propagates `ValidationError` / `yaml.YAMLError` straight up, which broke `dbctl --help` and `dbctl` (dashboard) entirely on a malformed YAML. | `registries()` now catches, prints once to stderr, and returns empty registries so `--help` and the dashboard still render and the operator sees the error in context. |
 | 12 | `dbctl/cli.py`      | medium     | `operations_validate` was a no-op — it printed "all N operations valid" without re-loading or catching errors (validation happened implicitly at load time, so a *new* error made `--help` crash instead of being reported by `validate`). | Now re-loads `operations.yaml` from disk via `load_operations(path=...)`, catches and reports each error, and additionally surfaces ops whose `sql` / `queries` are inconsistent with their `mode` / `scope`. Added a `--strict` flag for CI. |
-| 13 | `dbctl/cli.py`     | **UX**     | Multi-DB used `--src` / `--trg` flags — `dbctl diff user-count --src pg --trg my`. The agreed UX is verb-first positional connections: `dbctl diff user-count pg my`. | Refactored `_make_multi_group` + `_make_multi_op_command` so each role becomes a leading positional Argument (matching `roles` in declared order), followed by the op's own positional/keyword params. `dbctl diff compare-quotas pg my Daily` now works. The audit log records the joined connection names. |
+| 13 | `dbctl/cli.py`     | **UX**     | Multi-DB used `--src` / `--trg` flags — `dbctl diff user-count --src pg --trg my`. The agreed UX is verb-first positional connections: `dbctl diff user-count pg my`. | Refactored `_make_multi_group` + `_make_multi_op_command` so each role becomes a leading positional Argument (matching `roles` in declared order), followed by the op's own positional/keyword params. `dbctl diff compare-credits pg my Daily` now works. The audit log records the joined connection names. |
 
 ## Bonus cleanups
 

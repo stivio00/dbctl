@@ -207,7 +207,7 @@ safety:
 - `read_only: true` blocks every DML op (`mode: execute` / `upsert` /
   `script`) entirely — the connection can only run `fetch` / `fetch_one`
   operations, `info` queries, and `health`. Use it for reporting replicas.
-- `allowed_operations: [add-user, reset-quota]` restricts the connection to
+- `allowed_operations: [add-user, reset-credits]` restricts the connection to
   those operation names; an empty list means any operation is allowed. This
   is the last line of defense for production.
 

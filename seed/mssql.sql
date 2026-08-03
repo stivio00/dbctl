@@ -3,28 +3,28 @@
 
 IF OBJECT_ID('dbo.logs', 'U')   IS NOT NULL DROP TABLE dbo.logs;
 IF OBJECT_ID('dbo.usage', 'U')  IS NOT NULL DROP TABLE dbo.usage;
-IF OBJECT_ID('dbo.quotas', 'U') IS NOT NULL DROP TABLE dbo.quotas;
+IF OBJECT_ID('dbo.credits', 'U') IS NOT NULL DROP TABLE dbo.credits;
 IF OBJECT_ID('dbo.users', 'U')  IS NOT NULL DROP TABLE dbo.users;
 
 CREATE TABLE dbo.users (
     id           INT IDENTITY(1,1) PRIMARY KEY,
     name         NVARCHAR(120) NOT NULL UNIQUE,
-    quota_daily  INT NOT NULL DEFAULT 100,
-    quota_yearly INT NOT NULL DEFAULT 36500,
+    credits_daily  INT NOT NULL DEFAULT 100,
+    credits_yearly INT NOT NULL DEFAULT 36500,
     type         NVARCHAR(16) NOT NULL DEFAULT N'Daily',
     is_active    BIT NOT NULL DEFAULT 1,
     created_at   DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     updated_at   DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
 
-CREATE TABLE dbo.quotas (
+CREATE TABLE dbo.credits (
     id           INT IDENTITY(1,1) PRIMARY KEY,
     user_id      INT NOT NULL,
     period       NVARCHAR(16) NOT NULL,
     limit_value  INT NOT NULL,
     consumed     INT NOT NULL DEFAULT 0,
     created_at   DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
-    CONSTRAINT fk_quota_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE CASCADE
+    CONSTRAINT fk_credits_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE dbo.usage (
@@ -45,13 +45,13 @@ CREATE TABLE dbo.logs (
 );
 
 SET IDENTITY_INSERT dbo.users ON;
-INSERT INTO dbo.users (id, name, quota_daily, quota_yearly, type) VALUES
+INSERT INTO dbo.users (id, name, credits_daily, credits_yearly, type) VALUES
  (1, 'alice',  350, 127750, N'Daily'),
  (2, 'bob',    180,  65700, N'Yearly'),
  (3, 'carol',  850, 310250, N'Daily');
 SET IDENTITY_INSERT dbo.users OFF;
 
-INSERT INTO dbo.quotas (user_id, period, limit_value) VALUES
+INSERT INTO dbo.credits (user_id, period, limit_value) VALUES
  (1, N'Daily',  350),
  (1, N'Yearly', 127750);
 
@@ -63,4 +63,4 @@ INSERT INTO dbo.usage (user_id, event) VALUES
 INSERT INTO dbo.logs (user_id, level, message) VALUES
  (1, N'INFO',  N'session opened'),
  (2, N'INFO',  N'report exported'),
- (3, N'ERROR', N'quota exceeded');
+ (3, N'ERROR', N'credits exceeded');

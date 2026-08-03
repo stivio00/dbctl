@@ -75,9 +75,9 @@ value is not possible.
 
 ```yaml
 sql: |
-  INSERT INTO users (name, quota_daily, quota_yearly, type)
-  VALUES ($name, $quota, $quota * 365, $type)
-  ON CONFLICT (name) DO UPDATE SET quota_daily = EXCLUDED.quota_daily
+  INSERT INTO users (name, credits_daily, credits_yearly, type)
+  VALUES ($name, $credits, $credits * 365, $type)
+  ON CONFLICT (name) DO UPDATE SET credits_daily = EXCLUDED.credits_daily
 ```
 
 - `$1`, `$2`, … are **not** rewritten (they're positional placeholders in
@@ -92,16 +92,16 @@ sql: |
   avoid mixing dollar-quoting with `$name` parameters in the same operation.
   Use single-quoted string literals for any in-SQL text.
 - The same placeholder can appear twice in one statement
-  (`VALUES ($quota, $quota * 365)`); the driver reuses the value.
+  (`VALUES ($credits, $credits * 365)`); the driver reuses the value.
 
 > **Negative positional arguments.** Click can't distinguish a negative
 > number from an unknown option when it appears as a positional `Argument`
-> value (e.g. `dbctl pg increase-quota alice -10` is parsed as the unknown
+> value (e.g. `dbctl pg increase-credits alice -10` is parsed as the unknown
 > option `-1`). The error message includes a hint pointing at the `--`
 > separator, which you can use to unambiguously mark the start of positionals:
 >
 > ```bash
-> dbctl pg increase-quota --apply -y -- alice -10
+> dbctl pg increase-credits --apply -y -- alice -10
 > ```
 
 ## <a name="mode"></a> `mode` (single-scope)
@@ -188,7 +188,7 @@ operations:
     roles: [src, trg]
     diff:
       strategy: table_counts
-      tables: [users, quotas, usage, logs]   # explicit list (no `["*"]`)
+      tables: [users, credits, usage, logs]   # explicit list (no `["*"]`)
       key: [t]
       show: [n]
 ```
@@ -268,8 +268,8 @@ operations:
     mode: sync
     roles: [src, trg]
     queries:
-      src: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
-      trg: "SELECT id, name, quota_daily, quota_yearly, type, is_active FROM users"
+      src: "SELECT id, name, credits_daily, credits_yearly, type, is_active FROM users"
+      trg: "SELECT id, name, credits_daily, credits_yearly, type, is_active FROM users"
     sync_spec:
       key: [id]
       target_table: users
@@ -304,7 +304,7 @@ operations:
     mode: validate
     roles: [src, trg]
     validate_spec:
-      tables: [users, quotas, usage, logs]   # null = introspect intersection
+      tables: [users, credits, usage, logs]   # null = introspect intersection
       # include: []                          # only these column names
       # exclude: [created_at]                # drop these column names from the diff
 ```
@@ -370,20 +370,20 @@ the roadmap.
 ```yaml
 operations:
   add-user:
-    description: "Create or update an application user (Daily quota by default)"
+    description: "Create or update an application user (Daily credits by default)"
     scope: single
     mode: execute
     confirm: true
     parameters:
       - { name: name,  type: string,  required: true,  position: 1, description: "Unique user name" }
-      - { name: quota, type: integer, required: true,  position: 2, description: "Daily quota" }
+      - { name: credits, type: integer, required: true,  position: 2, description: "Daily credits" }
       - { name: type,  type: string,  default: "Daily", position: 3, description: "Account type" }
     sql: |
-      INSERT INTO users (name, quota_daily, quota_yearly, type)
-        VALUES ($name, $quota, $quota * 365, $type)
+      INSERT INTO users (name, credits_daily, credits_yearly, type)
+        VALUES ($name, $credits, $credits * 365, $type)
       ON CONFLICT (name) DO UPDATE
-        SET quota_daily  = EXCLUDED.quota_daily,
-            quota_yearly = EXCLUDED.quota_yearly,
+        SET credits_daily  = EXCLUDED.credits_daily,
+            credits_yearly = EXCLUDED.credits_yearly,
             type         = EXCLUDED.type,
             updated_at   = NOW()
 
@@ -395,9 +395,9 @@ operations:
     parameters:
       - { name: limit, type: integer, default: 10, position: 1 }
     sql: |
-      SELECT name, quota_daily, quota_yearly, type, is_active
+      SELECT name, credits_daily, credits_yearly, type, is_active
       FROM users
-      ORDER BY quota_daily DESC
+      ORDER BY credits_daily DESC
       LIMIT $limit
 
   find-user:
@@ -407,10 +407,10 @@ operations:
     parameters:
       - { name: prefix, type: string, required: true, position: 1 }
     sql: |
-      SELECT name, quota_daily, is_active FROM users WHERE name ILIKE $prefix || '%'
+      SELECT name, credits_daily, is_active FROM users WHERE name ILIKE $prefix || '%'
 
-  increase-quota:
-    description: "Increase a user's daily and yearly quota by a percentage"
+  increase-credits:
+    description: "Increase a user's daily and yearly credits by a percentage"
     scope: single
     mode: execute
     confirm: true
@@ -419,8 +419,8 @@ operations:
       - { name: pct,  type: float,  required: true, position: 2, description: "Percentage increase (e.g. 10 = +10%) — use `--` for negative values" }
     sql: |
       UPDATE users
-         SET quota_daily  = (quota_daily  * (1 + $pct / 100.0))::integer,
-             quota_yearly = (quota_yearly * (1 + $pct / 100.0))::integer,
+         SET credits_daily  = (credits_daily  * (1 + $pct / 100.0))::integer,
+             credits_yearly = (credits_yearly * (1 + $pct / 100.0))::integer,
              updated_at   = NOW()
        WHERE name = $name
 
@@ -451,8 +451,8 @@ operations:
       key: [t]
       show: [n]
 
-  compare-quotas:
-    description: "Side-by-side quota summary across two databases"
+  compare-credits:
+    description: "Side-by-side credits summary across two databases"
     scope: multi
     mode: diff
     roles: [src, trg]
@@ -461,11 +461,11 @@ operations:
     queries:
       src: |
         SELECT period AS t, COUNT(*) AS n_rows, SUM(limit_value) AS total_limit
-        FROM quotas JOIN users ON quotas.user_id = users.id
+        FROM credits JOIN users ON credits.user_id = users.id
         WHERE period = $period GROUP BY period
       trg: |
         SELECT period AS t, COUNT(*) AS n_rows, SUM(limit_value) AS total_limit
-        FROM quotas JOIN users ON quotas.user_id = users.id
+        FROM credits JOIN users ON credits.user_id = users.id
         WHERE period = $period GROUP BY period
     diff:
       key: [t]

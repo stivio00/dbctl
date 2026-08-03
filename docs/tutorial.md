@@ -63,7 +63,7 @@ The `docker-compose.yml` in this repo starts:
 | mssql    | `1434`    | SQL Server 2022 + `app` DB |
 
 Each one runs the matching seed in `seed/` which creates four tables —
-`users`, `quotas`, `usage`, `logs` — with slightly different sample data so
+`users`, `credits`, `usage`, `logs` — with slightly different sample data so
 `diff` operations have something to compare.
 
 Give it ~20 seconds to come up; then verify:
@@ -163,11 +163,11 @@ The sample `pg` connection declares two info queries — `row_counts` and
 │ usage    │ 9     │
 │ logs     │ 3     │
 │ users    │ 3     │
-│ quotas   │ 2     │
+│ credits   │ 2     │
 └──────────┴───────┘
                             info: top_users (pg)
 ┏━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ name  ┃ quota_daily ┃ is_active ┃
+┃ name  ┃ credits_daily ┃ is_active ┃
 ┡━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━┩
 │ carol │ 1000       │ True      │
 │ alice │ 500        │ True      │
@@ -206,9 +206,9 @@ list-users:
   parameters:
     - { name: limit, type: integer, default: 10, position: 1 }
   sql: |
-    SELECT name, quota_daily, quota_yearly, type, is_active
+    SELECT name, credits_daily, credits_yearly, type, is_active
     FROM users
-    ORDER BY quota_daily DESC
+    ORDER BY credits_daily DESC
     LIMIT $limit
 ```
 
@@ -240,25 +240,25 @@ or subject to `safety.confirm`.
 
 ```yaml
 add-user:
-  description: "Create or update an application user (Daily quota by default)"
+  description: "Create or update an application user (Daily credits by default)"
   scope: single
   mode: execute
   confirm: true
   parameters:
     - { name: name,  type: string,  required: true,  position: 1, description: "Unique user name" }
-    - { name: quota, type: integer, required: true,  position: 2, description: "Daily quota" }
+    - { name: credits, type: integer, required: true,  position: 2, description: "Daily credits" }
     - { name: type,  type: string,  default: "Daily", position: 3, description: "Account type" }
   sql: |
-    INSERT INTO users (name, quota_daily, quota_yearly, type)
-      VALUES ($name, $quota, $quota * 365, $type)
+    INSERT INTO users (name, credits_daily, credits_yearly, type)
+      VALUES ($name, $credits, $credits * 365, $type)
     ON CONFLICT (name) DO UPDATE
-      SET quota_daily  = EXCLUDED.quota_daily,
-          quota_yearly = EXCLUDED.quota_yearly,
+      SET credits_daily  = EXCLUDED.credits_daily,
+          credits_yearly = EXCLUDED.credits_yearly,
           type         = EXCLUDED.type,
           updated_at   = NOW()
 ```
 
-Three declared parameters: `name` and `quota` are required positionals,
+Three declared parameters: `name` and `credits` are required positionals,
 `type` has a default. Try without `--apply` to see a dry-run:
 
 ```bash
@@ -269,11 +269,11 @@ Output:
 
 ```text
 resolved SQL:
-INSERT INTO users (name, quota_daily, quota_yearly, type)
+INSERT INTO users (name, credits_daily, credits_yearly, type)
   VALUES ('stephen', 12, 12 * 365, 'Daily')
 ON CONFLICT (name) DO UPDATE
-  SET quota_daily  = EXCLUDED.quota_daily,
-      quota_yearly = EXCLUDED.quota_yearly,
+  SET credits_daily  = EXCLUDED.credits_daily,
+      credits_yearly = EXCLUDED.credits_yearly,
       type         = EXCLUDED.type,
       updated_at   = NOW()
 dry-run (use --apply to commit)
@@ -311,7 +311,7 @@ prompt for it interactively. Try:
 ```bash
 ▶ uv run dbctl pg add-user
 name (Unique user name): joseph
-quota (Daily quota): 25
+credits (Daily credits): 25
 ```
 
 In CI (no TTY) the missing param is a hard error so scripts fail loudly.
@@ -338,7 +338,7 @@ same parameters — handy when iterating:
 
 ```bash
 ▶ uv run dbctl pg again
-re-running: pg add-user {'name': 'mary', 'quota': 50, 'type': 'Daily'}
+re-running: pg add-user {'name': 'mary', 'credits': 50, 'type': 'Daily'}
 OK 1 row(s) affected in 18.0ms
 ```
 
@@ -375,10 +375,10 @@ declared `roles`:
 
 ```bash
 ▶ uv run dbctl diff --help
-Multi-connection `diff` operations: user-count, compare-quotas
+Multi-connection `diff` operations: user-count, compare-credits
 
 Commands:
-  compare-quotas  Side-by-side quota summary across two databases
+  compare-credits  Side-by-side credits summary across two databases
   user-count      Compare user counts between two databases
 ```
 
@@ -409,16 +409,16 @@ Output (after the section 8 inserts, `pg` has 5 users and `my` has 3):
 └────────┴───────┴───────┴─────┘
 ```
 
-The `compare-quotas` operation takes its own positional parameter (`period`)
+The `compare-credits` operation takes its own positional parameter (`period`)
 in addition to the role connections:
 
 ```bash
-▶ uv run dbctl diff compare-quotas --help
-Usage: dbctl diff compare-quotas [OPTIONS] SRC TRG [PERIOD]
+▶ uv run dbctl diff compare-credits --help
+Usage: dbctl diff compare-credits [OPTIONS] SRC TRG [PERIOD]
 ```
 
 ```bash
-▶ uv run dbctl diff compare-quotas pg my Daily
+▶ uv run dbctl diff compare-credits pg my Daily
 ```
 
 `--show-sql` prints the per-role SQL before running so you can sanity-check

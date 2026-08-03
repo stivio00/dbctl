@@ -38,8 +38,8 @@ def sqlite_conn() -> sqlite3.Connection:
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            quota_daily INT NOT NULL DEFAULT 100,
-            quota_yearly INT NOT NULL DEFAULT 36500,
+            credits_daily INT NOT NULL DEFAULT 100,
+            credits_yearly INT NOT NULL DEFAULT 36500,
             type TEXT NOT NULL DEFAULT 'Daily',
             is_active INT NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -68,13 +68,19 @@ def add_user_op() -> Operation:
             "confirm": True,
             "parameters": [
                 {"name": "name", "type": "string", "required": True, "position": 1, "description": "name"},
-                {"name": "quota", "type": "integer", "required": True, "position": 2, "description": "daily"},
+                {
+                    "name": "credits",
+                    "type": "integer",
+                    "required": True,
+                    "position": 2,
+                    "description": "daily",
+                },
                 {"name": "type", "type": "string", "default": "Daily", "position": 3, "description": "type"},
             ],
             "sql": (
-                "INSERT INTO users (name, quota_daily, quota_yearly, type) "
-                "VALUES ($name, $quota, $quota * 365, $type) "
-                "ON CONFLICT (name) DO UPDATE SET quota_daily = EXCLUDED.quota_daily"
+                "INSERT INTO users (name, credits_daily, credits_yearly, type) "
+                "VALUES ($name, $credits, $credits * 365, $type) "
+                "ON CONFLICT (name) DO UPDATE SET credits_daily = EXCLUDED.credits_daily"
             ),
         }
     )
@@ -205,7 +211,7 @@ def test_format_sql_interpolates():
 # execution modes against sqlite
 # --------------------------------------------------------------------------- #
 def test_execute_modewrites_row(engine, add_user_op):
-    bound = bind_params(add_user_op, {"name": "alice", "quota": 100})
+    bound = bind_params(add_user_op, {"name": "alice", "credits": 100})
     with engine.begin() as c:
         res = render(c, add_user_op, bound)
     assert res.rows_affected == 1
@@ -217,15 +223,15 @@ def test_fetch_mode_returns_dict_rows(engine):
         {
             "scope": "single",
             "mode": "fetch",
-            "sql": "SELECT name, quota_daily FROM users",
+            "sql": "SELECT name, credits_daily FROM users",
             "parameters": [],
         }
     )
     with engine.begin() as c:
-        c.execute(text("INSERT INTO users (name, quota_daily) VALUES ('a', 1), ('b', 2)"))
+        c.execute(text("INSERT INTO users (name, credits_daily) VALUES ('a', 1), ('b', 2)"))
     with engine.connect() as c:
         res = render(c, fetch_op, {})
-    assert res.rows == [{"name": "a", "quota_daily": 1}, {"name": "b", "quota_daily": 2}]
+    assert res.rows == [{"name": "a", "credits_daily": 1}, {"name": "b", "credits_daily": 2}]
 
 
 def test_fetch_one_mode_returns_one(engine):
@@ -233,15 +239,15 @@ def test_fetch_one_mode_returns_one(engine):
         {
             "scope": "single",
             "mode": "fetch_one",
-            "sql": "SELECT quota_daily FROM users WHERE name = $name",
+            "sql": "SELECT credits_daily FROM users WHERE name = $name",
             "parameters": [{"name": "name", "type": "string", "required": True}],
         }
     )
     with engine.begin() as c:
-        c.execute(text("INSERT INTO users (name, quota_daily) VALUES ('a', 1)"))
+        c.execute(text("INSERT INTO users (name, credits_daily) VALUES ('a', 1)"))
     with engine.connect() as c:
         res = render(c, fetch_one, {"name": "a"})
-    assert res.rows == [{"quota_daily": 1}]
+    assert res.rows == [{"credits_daily": 1}]
 
 
 def test_upsert_mode_dispatches_error(engine):

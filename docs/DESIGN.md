@@ -109,11 +109,11 @@ matching `roles` in declared order:
 
 ```bash
 dbctl diff user-count pg my                     # roles [src, trg]
-dbctl diff compare-quotas pg my Daily           # + the op's own positional
+dbctl diff compare-credits pg my Daily           # + the op's own positional
 ```
 
 This is verb-first (matching `git diff A B`) and lets the op's own parameters
-be declared per-op (so `--period` for `compare-quotas` is its real flag, not a
+be declared per-op (so `--period` for `compare-credits` is its real flag, not a
 shared one). `reports.render_side_by_side` joins the two result sets on
 `diff.key` and renders rows of `key | val_a | val_b | Δ`.
 

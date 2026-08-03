@@ -43,7 +43,7 @@ _NEG_OPT_RE = re.compile(r"No such option '(-\d[^']*)'")
 class _NegNumberHintCommand(click.Command):
     """Click can't parse a negative number as a positional Argument value
     (only Options support negative-number detection, and only with a Range
-    type and `min < 0`). When the user writes ``dbctl pg increase-quota
+    type and `min < 0`). When the user writes ``dbctl pg increase-credits
     zelda -10`` Click reports ``No such option '-1'`` which is opaque.
 
     This subclass intercepts that exact error and appends a hint pointing

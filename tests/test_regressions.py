@@ -97,7 +97,7 @@ def test_to_bindparams_handles_cast_idiom():
 
 # --------------------------------------------------------------------------- #
 # Bug: a negative number for a positional Argument (e.g.
-# `dbctl pg increase-quota zelda -10`) failed with the opaque
+# `dbctl pg increase-credits zelda -10`) failed with the opaque
 # `No such option '-1'`. The CLI now sub-classes `click.Command` to
 # append a "-- separator" hint showing the user's actual token.
 # --------------------------------------------------------------------------- #
@@ -115,10 +115,10 @@ def test_negative_positional_arg_emits_separator_hint():
                 {"name": "name", "type": "string", "required": True, "position": 1},
                 {"name": "pct", "type": "float", "required": True, "position": 2},
             ],
-            "sql": "UPDATE users SET quota = quota * (1 + $pct / 100) WHERE name = $name",
+            "sql": "UPDATE users SET credits = credits * (1 + $pct / 100) WHERE name = $name",
         }
     )
-    cmd = _make_single_op_command("pg", "increase-quota", op)
+    cmd = _make_single_op_command("pg", "increase-credits", op)
     result = CliRunner().invoke(cmd, ["zelda", "-10"], obj={}, color=False)
     # Click returns exit code 2 on UsageError; we just want the hint.
     assert "No such option '-1'" in result.output
@@ -647,7 +647,7 @@ def test_validate_op_dispatches_run_validate(tmp_path, monkeypatch):
         return ValidateReport(
             mismatches=[
                 ValidateMismatch("users", "email", "missing_in_trg", "VARCHAR(255)", ""),
-                ValidateMismatch("users", "quota", "type_mismatch", "INTEGER", "BIGINT"),
+                ValidateMismatch("users", "credits", "type_mismatch", "INTEGER", "BIGINT"),
             ],
             tables_compared=1,
             duration_ms=5.0,
