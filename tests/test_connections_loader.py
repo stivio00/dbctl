@@ -69,7 +69,7 @@ def test_bad_connection_does_not_invalidate_good_ones(tmp_path: Path) -> None:
     assert "pg-ssm" in err.errors
     # The message is a single concise sentence (no pydantic traceback dump).
     msg = err.errors["pg-ssm"]
-    assert "set 'password', 'password_env' or 'prompt: true'" in msg
+    assert "set 'password', 'password_env'" in msg
     assert "\n" not in msg
     # And the whole rendered exception stays short and human-readable.
     rendered = str(err)

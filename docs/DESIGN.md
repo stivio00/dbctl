@@ -1,5 +1,7 @@
 # Design notes for dbctl
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 This document captures the *why* behind the project's architecture, so future
 contributors can extend it without re-litigating settled decisions.
 

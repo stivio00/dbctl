@@ -5,6 +5,54 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] — 2026-08-03
+
+### Added
+
+- **`url:` full SQLAlchemy connection string** — a second way to declare a
+  connection's DB credentials alongside the individual-field mode
+  (`driver` / `database` / `username` / `password` / …). When `url:` is
+  set, `build_engine` uses the URL as-is and does **not** inject the
+  tunnel's local bind — the URL's own host:port wins. The config
+  validator rejects any overlap between `url:` and the individual
+  credential fields with a clear message. Use this for Azure AD auth,
+  ODBC-specific query params, or any non-standard connection string.
+- **`windows_sso: true`** credential source for `mssql+pyodbc` — sets
+  `Trusted_Connection=yes` in the ODBC connect args and omits
+  `username` / `password` from the URL entirely. Mutually exclusive
+  with `password` / `password_env` / `prompt` and only valid with
+  `mssql+pyodbc`; config validator enforces all three.
+- **Init wizard** now offers two paths: full SQLAlchemy URL or
+  individual fields. In individual-field mode the driver prompt is a
+  `click.Choice` of the four bundled drivers (`postgresql+psycopg`,
+  `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`); for mssql the
+  password source prompt includes `windows-sso` as a fourth option.
+- **`logo_small.png`** bundled in the wheel + sdist alongside `logo.png`;
+  added to the top of every `docs/*.md` page and as a centred footer in
+  the README (the big logo stays at the top).
+
+### Changed
+
+- `Connection.driver` and `Connection.database` are now optional
+  (`str | None`) — required only when `url:` is not set. The config
+  validator enforces this with a clear message.
+- `Connection.username` is `str | None` (was `str`) — omit when
+  `windows_sso: true`.
+- `dbctl.db._driver_name()` extracts the driver scheme from `conn.url`
+  when `conn.driver` is `None`, so `_check_driver_available` and
+  `_connect_args` work in full-URL mode.
+- `dbctl.db.build_engine()` uses `sqlalchemy.make_url()` when
+  `conn.url` is set; otherwise assembles the URL from the individual
+  fields + tunnel bind (unchanged).
+
+### Fixed
+
+- Loader error message for missing password source now mentions
+  `windows_sso: true` as a fourth option.
+- Sample `.dbctl/connections.yaml` includes `azure-sql` (full-URL
+  reference template) and `mssql-sso` (Windows SSO reference template),
+  both `read_only: true` so accidental runs are safe.
+
 ## [0.6.1] — 2026-08-03
 
 ### Changed

@@ -192,3 +192,37 @@ connections:
       confirm: true
       read_only: true
       allowed_operations: []
+  # --------------------------------------------------------------------- #
+  # Full SQLAlchemy URL + Windows SSO reference templates.
+  # --------------------------------------------------------------------- #
+
+  # Full SQLAlchemy connection string — use when you need ODBC-specific
+  # query params, Azure AD auth, or any scheme dbctl's individual fields
+  # don't model. When `url:` is set, the tunnel's local bind is NOT
+  # injected — the URL's own host:port wins.
+  azure-sql:
+    description: "REFERENCE: Azure SQL via full SQLAlchemy URL (edit before using)"
+    aliases: []
+    type: direct
+    url: "mssql+pyodbc://app_admin@myserver.database.windows.net:1433/app?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&Authentication=ActiveDirectoryPassword"
+    direct: { host: myserver.database.windows.net, port: 1433 }
+    healthcheck: { query: "SELECT 1", timeout_seconds: 10 }
+    safety:
+      confirm: true
+      read_only: true
+
+  # SQL Server with Windows Integrated Security (Trusted_Connection=yes).
+  # No username / password / password_env / prompt needed — the ODBC
+  # driver uses the current Windows user's credentials.
+  mssql-sso:
+    description: "REFERENCE: SQL Server with Windows SSO (edit before using)"
+    aliases: []
+    type: direct
+    driver: mssql+pyodbc
+    database: app
+    windows_sso: true
+    direct: { host: 10.0.0.5, port: 1433 }
+    healthcheck: { query: "SELECT 1", timeout_seconds: 5 }
+    safety:
+      confirm: true
+      read_only: true

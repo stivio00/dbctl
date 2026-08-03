@@ -1,5 +1,7 @@
 # dbctl — build summary & audit
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 This file is the human-readable record of the second-pass review + the
 documentation work performed on 2026-08-01. It is *not* read by the tool; it
 exists for the operator to skim "what was done, what was checked, what is

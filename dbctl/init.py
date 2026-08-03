@@ -38,34 +38,77 @@ def run_wizard(*, profile: str | None) -> None:
 
     type_ = click.prompt("tunnel type", type=click.Choice([t.value for t in TunnelType]), default="direct")
 
-    driver = click.prompt(
-        "driver (sqlalchemy url scheme)",
-        type=str,
-        default="postgresql+psycopg",
+    # Two paths: full SQLAlchemy URL or individual fields.
+    use_url = click.confirm(
+        "provide a full SQLAlchemy connection string (url)?",
+        default=False,
     )
-    database = click.prompt("database name", type=str)
-    username = click.prompt("username", type=str)
-
-    cred = click.prompt(
-        "password source",
-        type=click.Choice(["plain", "env", "prompt"]),
-        default="prompt",
-    )
-    password = click.prompt("password", hide_input=True, default="") if cred == "plain" else None
-    password_env = f"DBCTL_{name.upper()}_PASSWORD" if cred == "env" else None
-    prompt = cred == "prompt"
 
     ssm = ssh = k8s = direct = None
-    if type_ == "ssm":
-        ssm = _ask_ssm()
-    elif type_ == "ssh":
-        ssh = _ask_ssh()
-    elif type_ == "k8s":
-        k8s = _ask_k8s()
+    url = None
+    driver = None
+    database = None
+    username = None
+    password = None
+    password_env = None
+    prompt = False
+    windows_sso = False
+
+    if use_url:
+        url = click.prompt(
+            "SQLAlchemy URL (e.g. postgresql+psycopg://user:pw@host:5432/db)",
+            type=str,
+        ).strip()
+        if type_ == "direct":
+            host = click.prompt("host (for reference only; URL's host wins)", default="localhost")
+            port = click.prompt("port (for reference only)", type=int, default=5432)
+            direct = DirectTunnel(host=host, port=port)
     else:
-        host = click.prompt("host", default="localhost")
-        port = click.prompt("port", type=int, default=_default_port(driver))
-        direct = DirectTunnel(host=host, port=port)
+        driver = click.prompt(
+            "driver (sqlalchemy url scheme)",
+            type=click.Choice(
+                ["postgresql+psycopg", "mysql+pymysql", "mariadb+pymysql", "mssql+pyodbc"],
+                case_sensitive=False,
+            ),
+            default="postgresql+psycopg",
+        )
+        database = click.prompt("database name", type=str)
+
+        if driver.startswith("mssql"):
+            # mssql offers Windows SSO as a credential alternative.
+            cred = click.prompt(
+                "password source",
+                type=click.Choice(["plain", "env", "prompt", "windows-sso"]),
+                default="prompt",
+            )
+            if cred == "windows-sso":
+                windows_sso = True
+            else:
+                username = click.prompt("username", type=str)
+                password = click.prompt("password", hide_input=True, default="") if cred == "plain" else None
+                password_env = f"DBCTL_{name.upper()}_PASSWORD" if cred == "env" else None
+                prompt = cred == "prompt"
+        else:
+            username = click.prompt("username", type=str)
+            cred = click.prompt(
+                "password source",
+                type=click.Choice(["plain", "env", "prompt"]),
+                default="prompt",
+            )
+            password = click.prompt("password", hide_input=True, default="") if cred == "plain" else None
+            password_env = f"DBCTL_{name.upper()}_PASSWORD" if cred == "env" else None
+            prompt = cred == "prompt"
+
+        if type_ == "ssm":
+            ssm = _ask_ssm()
+        elif type_ == "ssh":
+            ssh = _ask_ssh()
+        elif type_ == "k8s":
+            k8s = _ask_k8s()
+        else:
+            host = click.prompt("host", default="localhost")
+            port = click.prompt("port", type=int, default=_default_port(driver or ""))
+            direct = DirectTunnel(host=host, port=port)
 
     healthcheck = Healthcheck(query=click.prompt("healthcheck query", default="SELECT 1"))
     confirm = click.confirm("prompt for confirmation before DML (recommended for prod)?", default=True)
@@ -75,12 +118,14 @@ def run_wizard(*, profile: str | None) -> None:
         description=description,
         aliases=aliases,
         type=TunnelType(type_),
+        url=url,
         driver=driver,
         database=database,
         username=username,
         password=password,
         password_env=password_env,
         prompt=prompt,
+        windows_sso=windows_sso,
         ssm=ssm,
         ssh=ssh,
         k8s=k8s,

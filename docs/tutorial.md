@@ -1,5 +1,7 @@
 # Tutorial: from zero to running your first operation
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 This walkthrough takes you from a fresh checkout to running real operations
 against three live databases in about 15 minutes. It uses the bundled
 docker-compose fleet (postgres, mysql, sql server) so you don't need AWS or

@@ -1,5 +1,7 @@
 # `connections.yaml` reference
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 `~/.dbctl/connections.yaml` (or `~/.dbctl/profiles/<name>/connections.yaml`
 when using `--profile <name>`) describes every database `dbctl` can reach.
 The whole file is one map:
@@ -16,17 +18,34 @@ falling back to defaults.
 
 ## Top-level fields
 
+There are two ways to declare a connection's DB credentials:
+
+1. **Individual fields** (`driver` / `database` / `username` / `password` / …)
+   — `dbctl` assembles a SQLAlchemy URL from the pieces, swapping in the
+   tunnel's local bind as host:port. Best for most cases.
+2. **Full `url:` string** — provide a complete SQLAlchemy URL
+   (e.g. `postgresql+psycopg://user:pw@host:5432/db`). The URL is used
+   as-is; the tunnel's local bind is **not** injected. Best for exotic
+   connection strings (Azure AD, cloud sockets, ODBC-specific kwargs)
+   that don't fit the individual-field model.
+
+The two shapes are mutually exclusive — the config validator rejects any
+overlap with a clear message.
+
+### Individual-field mode
+
 | field           | type                                      | required | notes |
 |-----------------|-------------------------------------------|----------|-------|
 | `description`   | string                                    | no       | shown in the dashboard and `dbctl connections list`. |
 | `aliases`       | list of strings                           | no       | alternates that resolve back to this connection (e.g. `prod` → `db1`). |
 | `type`          | `ssm` \| `ssh` \| `k8s` \| `direct`       | **yes**  | selects the tunnel implementation. |
-| `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported conventions: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`. Any other SQLAlchemy scheme works as long as its driver is importable. |
+| `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`. Any other SQLAlchemy scheme works as long as its driver is importable. |
 | `database`      | string                                    | **yes**  | database / catalog name passed to SQLAlchemy. |
-| `username`      | string                                    | **yes**  | DB user. |
-| `password`      | string                                    | see rule | plaintext DB password (local dev only — don't commit real secrets to YAML). Mutually exclusive with `password_env` and `prompt`. |
-| `password_env`  | string                                    | see rule | name of the environment variable holding the DB password. Mutually exclusive with `password` and `prompt`. |
-| `prompt`        | bool                                      | see rule | prompt for the DB password interactively each run. Mutually exclusive with `password` and `password_env`. |
+| `username`      | string                                    | **yes** (unless `windows_sso`) | DB user. |
+| `password`      | string                                    | see rule | plaintext DB password (local dev only — don't commit real secrets to YAML). Mutually exclusive with `password_env`, `prompt`, and `windows_sso`. |
+| `password_env`  | string                                    | see rule | name of the environment variable holding the DB password. Mutually exclusive with `password`, `prompt`, and `windows_sso`. |
+| `prompt`        | bool                                      | see rule | prompt for the DB password interactively each run. Mutually exclusive with `password`, `password_env`, and `windows_sso`. |
+| `windows_sso`   | bool                                      | see rule | mssql+pyodbc only: use Windows Integrated Security (`Trusted_Connection=yes`). Mutually exclusive with all password sources. Omit `username` when this is set. |
 | `ssm`           | [`SsmTunnel`](#ssm-block)                 | yes if `type: ssm` | tunnel params. |
 | `ssh`           | [`SshTunnel`](#ssh-block)                 | yes if `type: ssh` | tunnel params. |
 | `k8s`           | [`K8sTunnel`](#k8s-block)                 | yes if `type: k8s` | tunnel params. |
@@ -35,14 +54,32 @@ falling back to defaults.
 | `info`          | list of [`InfoQuery`](#info-query)        | no       | named introspection queries that `dbctl <conn> info <name>` can run. |
 | `safety`        | [`Safety`](#safety-block)                 | no       | gates DML. |
 
-**Credential rule.** Exactly one of `password`, `password_env`, and `prompt`
-must be set; they are mutually exclusive. `password` (plaintext) is fine for
-local dev fleets like the bundled docker-compose sample; for anything shared
-or production-shaped prefer `password_env` (the value lives in your shell /
-secret manager, never in YAML) or `prompt: true` (interactive, leaves no
-trace). There is no Secrets Manager / Vault integration — the assumption is
-your existing SSO session and shell environment already wrap the secrets you
-need.
+**Credential rule.** Exactly one of `password`, `password_env`, `prompt`,
+and `windows_sso` must be set; they are mutually exclusive. `password`
+(plaintext) is fine for local dev fleets like the bundled docker-compose
+sample; for anything shared or production-shaped prefer `password_env`
+(the value lives in your shell / secret manager, never in YAML) or
+`prompt: true` (interactive, leaves no trace). `windows_sso: true` is for
+SQL Server on Windows with Integrated Security (the ODBC driver uses the
+current Windows user's Kerberos/NTLM credentials).
+
+### Full-URL mode
+
+| field  | type   | required | notes |
+|--------|--------|----------|-------|
+| `url`  | string | **yes** (instead of the individual fields above) | full SQLAlchemy URL, e.g. `postgresql+psycopg://user:pw@host:5432/db` or `mssql+pyodbc://user:pw@host:1433/db?driver=ODBC+Driver+18+for+SQL+Server`. Used as-is; the tunnel's local bind is NOT injected. |
+
+When `url:` is set, `driver` / `database` / `username` / `password` /
+`password_env` / `prompt` / `windows_sso` must all be absent — the config
+validator rejects the overlap. The `type` + tunnel block (`direct` / `ssm` /
+`ssh` / `k8s`) and `healthcheck` / `info` / `safety` blocks are still
+required/optional as above.
+
+Use full-URL mode when:
+- you need ODBC-specific query-string params (`?driver=…&Encrypt=yes`);
+- you're connecting to Azure SQL with `Authentication=ActiveDirectoryPassword`;
+- your SQLAlchemy URL uses a non-standard scheme dbctl's individual fields
+  don't model.
 
 ### Loader resilience
 
@@ -312,3 +349,43 @@ connections:
       read_only: false
       allowed_operations: []
 ```
+
+### SQL Server with Windows SSO (Integrated Security)
+
+```yaml
+connections:
+  prod-mssql-sso:
+    description: "Production SQL Server (Windows Integrated Security)"
+    type: direct
+    driver: mssql+pyodbc
+    database: app
+    windows_sso: true              # ODBC: Trusted_Connection=yes
+    # no username / password / password_env / prompt needed
+    direct: { host: 10.0.0.5, port: 1433 }
+    healthcheck: { query: "SELECT 1", timeout_seconds: 5 }
+    safety:
+      confirm: true
+      read_only: false
+```
+
+### Full SQLAlchemy URL (Azure SQL with ActiveDirectoryPassword)
+
+```yaml
+connections:
+  azure-sql:
+    description: "Azure SQL Database (Azure AD password auth)"
+    type: direct
+    url: "mssql+pyodbc://app_admin@myserver.database.windows.net:1433/app?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&Authentication=ActiveDirectoryPassword"
+    direct: { host: myserver.database.windows.net, port: 1433 }
+    healthcheck: { query: "SELECT 1", timeout_seconds: 10 }
+    safety:
+      confirm: true
+      read_only: true
+```
+
+> When `url:` is set, the tunnel's local bind is **not** injected — the
+> URL's own host:port wins. Use this for cloud databases where the
+> connection string already encodes everything (Azure SQL, Cloud SQL
+> via the Cloud SQL connector, etc.). For tunnelled connections where
+> `dbctl` must rewrite host:port to the local bind, use the
+> individual-field mode instead.

@@ -298,6 +298,8 @@ DB password sources are mutually exclusive — pick **one** per connection:
 | `password: "…"`     | plaintext (local dev only). Don't commit real secrets. |
 | `password_env: VAR` | read from the named environment variable. Recommended for any shared/CI host. |
 | `prompt: true`      | prompt for the DB password interactively each run. Good for break-glass access. |
+| `windows_sso: true` | mssql+pyodbc only: Windows Integrated Security (`Trusted_Connection=yes`). No username/password needed. |
+| `url: "…"`          | full SQLAlchemy URL (overrides all the above). Use for Azure AD, ODBC-specific kwargs, or any non-standard connection string. |
 
 Secret-typed **operation** parameters (`type: secret`) are redacted in the
 audit log regardless of which DB password source the connection uses.
@@ -366,6 +368,12 @@ For a live end-to-end smoke test, `docker compose up -d` and follow the
 - Bidirectional `sync` with conflict arbitration (current `sync` is src → trg only)
 - Tag-based operation filtering (`dbctl pg --tag user-mgmt <op>`)
 - SSH agent / MFA support surfacing through the existing `ssh` subprocess
+
+---
+
+<p align="center">
+  <img src="docs/logo_small.png" alt="dbctl" width="120">
+</p>
 
 ## License
 

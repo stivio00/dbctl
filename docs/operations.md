@@ -1,5 +1,7 @@
 # `operations.yaml` reference
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 `~/.dbctl/operations.yaml` (or `~/.dbctl/profiles/<name>/operations.yaml`
 when using `--profile <name>`) declares every SQL block `dbctl` can run. The
 whole file is one map:

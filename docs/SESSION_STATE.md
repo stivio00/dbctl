@@ -1,5 +1,7 @@
 # dbctl — session state
 
+<img src="logo_small.png" alt="dbctl" width="120">
+
 Last active: 2026-08-01
 Project: `~/Projects/dbctl/`
 

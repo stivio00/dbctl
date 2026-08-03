@@ -966,3 +966,183 @@ connections:
     # `dbctl.db.resolve_password`, so it should be present on the object
     # independent of any env var.
     assert conns["plain"].password == "hunter2"
+
+
+# --------------------------------------------------------------------------- #
+# Connection config: `url` full-connection-string mode + `windows_sso`.
+# --------------------------------------------------------------------------- #
+def test_connection_url_mode_loads():
+    from dbctl.config import Connection
+
+    c = Connection.model_validate(
+        {
+            "description": "Azure SQL",
+            "type": "direct",
+            "url": "mssql+pyodbc://user:pw@host:1433/db?driver=ODBC+Driver+18",
+            "direct": {"host": "host", "port": 1433},
+            "healthcheck": {"query": "SELECT 1"},
+            "safety": {"confirm": True, "read_only": True},
+        }
+    )
+    assert c.url.startswith("mssql+pyodbc://")
+    assert c.driver is None
+    assert c.database is None
+    assert c.username is None
+    assert c.password is None
+
+
+def test_connection_url_rejects_overlap_with_driver():
+    import pytest
+
+    from dbctl.config import Connection
+
+    with pytest.raises(Exception, match="mutually exclusive"):
+        Connection.model_validate(
+            {
+                "type": "direct",
+                "url": "mssql+pyodbc://u:p@h:1433/db",
+                "driver": "mssql+pyodbc",
+                "database": "app",
+                "username": "u",
+                "password": "p",
+                "direct": {"host": "h", "port": 1433},
+            }
+        )
+
+
+def test_connection_url_rejects_overlap_with_password():
+    import pytest
+
+    from dbctl.config import Connection
+
+    with pytest.raises(Exception, match="mutually exclusive"):
+        Connection.model_validate(
+            {
+                "type": "direct",
+                "url": "mssql+pyodbc://u:p@h:1433/db",
+                "password": "secret",
+                "direct": {"host": "h", "port": 1433},
+            }
+        )
+
+
+def test_connection_windows_sso_mode_loads():
+    from dbctl.config import Connection
+
+    c = Connection.model_validate(
+        {
+            "type": "direct",
+            "driver": "mssql+pyodbc",
+            "database": "app",
+            "windows_sso": True,
+            "direct": {"host": "10.0.0.5", "port": 1433},
+            "healthcheck": {"query": "SELECT 1"},
+            "safety": {"confirm": True, "read_only": False},
+        }
+    )
+    assert c.windows_sso is True
+    assert c.username is None
+    assert c.password is None
+
+
+def test_connection_windows_sso_rejects_password():
+    import pytest
+
+    from dbctl.config import Connection
+
+    with pytest.raises(Exception, match="mutually exclusive"):
+        Connection.model_validate(
+            {
+                "type": "direct",
+                "driver": "mssql+pyodbc",
+                "database": "app",
+                "windows_sso": True,
+                "password": "secret",
+                "direct": {"host": "h", "port": 1433},
+            }
+        )
+
+
+def test_connection_windows_sso_rejects_non_mssql():
+    import pytest
+
+    from dbctl.config import Connection
+
+    with pytest.raises(Exception, match="only supported with mssql"):
+        Connection.model_validate(
+            {
+                "type": "direct",
+                "driver": "postgresql+psycopg",
+                "database": "app",
+                "windows_sso": True,
+                "direct": {"host": "h", "port": 5432},
+            }
+        )
+
+
+def test_connection_url_mode_build_engine_uses_url():
+    """build_engine() with url: uses make_url() and does NOT inject the
+    tunnel's local bind."""
+    from unittest.mock import MagicMock
+
+    from dbctl.config import Connection
+    from dbctl.db import _driver_name, build_engine
+
+    conn = Connection.model_validate(
+        {
+            "type": "direct",
+            "url": "sqlite:///dummy.db",
+            "direct": {"host": "ignored", "port": 9999},
+            "healthcheck": {"query": "SELECT 1"},
+            "safety": {"confirm": False, "read_only": False},
+        }
+    )
+    tunnel = MagicMock()
+    tunnel.local_host = "127.0.0.1"
+    tunnel.local_port = 12345
+
+    engine = build_engine(conn, tunnel)
+    # The URL's own host (none for sqlite:///dummy.db) wins — tunnel bind
+    # is NOT injected.
+    assert "dummy.db" in str(engine.url)
+    assert "127.0.0.1" not in str(engine.url)
+    assert "9999" not in str(engine.url)
+    # _driver_name extracts the scheme from the URL when conn.driver is None
+    assert _driver_name(conn) == "sqlite"
+
+
+def test_connection_individual_mode_build_engine_injects_tunnel_bind():
+    """build_engine() without url: assembles URL from fields and injects the
+    tunnel's local bind as host:port. Uses postgresql+psycopg (which we
+    can build a URL for without actually connecting)."""
+    from unittest.mock import MagicMock, patch
+
+    from dbctl.config import Connection
+    from dbctl.db import build_engine
+
+    conn = Connection.model_validate(
+        {
+            "type": "direct",
+            "driver": "postgresql+psycopg",
+            "database": "app",
+            "username": "u",
+            "password": "p",
+            "direct": {"host": "ignored", "port": 9999},
+            "healthcheck": {"query": "SELECT 1", "timeout_seconds": 5},
+            "safety": {"confirm": False, "read_only": False},
+        }
+    )
+    tunnel = MagicMock()
+    tunnel.local_host = "127.0.0.1"
+    tunnel.local_port = 12345
+
+    # Patch create_engine so we don't actually try to connect; just inspect
+    # the URL that build_engine would have passed.
+    with patch("dbctl.db.create_engine") as mock_create:
+        build_engine(conn, tunnel)
+        url = mock_create.call_args[0][0]
+        assert str(url.drivername) == "postgresql+psycopg"
+        assert url.host == "127.0.0.1"
+        assert url.port == 12345
+        assert url.database == "app"
+        assert url.username == "u"

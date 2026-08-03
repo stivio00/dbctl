@@ -3,6 +3,18 @@
 A tunnel yields (local_host, local_port); credentials yield the password.
 The URL builder combines them into a SQLAlchemy URL for the configured driver.
 
+Two connection shapes:
+
+1. **Individual fields** (``driver`` / ``database`` / ``username`` /
+   ``password`` / …) — ``build_engine`` assembles a SQLAlchemy URL from
+   the pieces, swapping in the tunnel's local bind as host:port.
+2. **Full ``url:`` string** — the user supplies a complete SQLAlchemy URL
+   (e.g. ``mssql+pyodbc://user:pw@host:1433/db?driver=ODBC+Driver+18``).
+   ``build_engine`` uses it as-is; the tunnel's local bind is **not**
+   injected (the URL's own host:port wins). This is for exotic connection
+   strings (Azure AD, cloud sockets, ODBC-specific kwargs) that don't
+   fit the individual-field model.
+
 Driver -> pip package map (so errors can guide users):
 
     postgresql+psycopg -> psycopg (v3)
@@ -32,7 +44,9 @@ class DBError(RuntimeError):
     pass
 
 
-def resolve_password(conn: Connection) -> str:
+def resolve_password(conn: Connection) -> str | None:
+    if conn.windows_sso:
+        return None  # ODBC driver uses the Windows user's credentials
     if conn.password is not None:
         return conn.password
     if conn.password_env:
@@ -41,34 +55,68 @@ def resolve_password(conn: Connection) -> str:
             raise DBError(f"environment variable {conn.password_env!r} is not set")
         return val
     if conn.prompt:
-        return getpass.getpass(f"Password for {conn.username}@{conn.database}: ")
+        return getpass.getpass(f"DB password for {conn.username}: ")
     # Connection validator already prevents this branch, but be defensive.
     raise DBError("no password source configured")
+
+
+def _driver_name(conn: Connection) -> str:
+    """Return the SQLAlchemy driver scheme for this connection.
+
+    When the user provides a full ``url:`` string, the driver is the
+    scheme part before ``+`` / ``://`` — extracted here so
+    ``_check_driver_available`` and ``_connect_args`` work without the
+    individual-field ``driver`` being set.
+    """
+    if conn.driver:
+        return conn.driver
+    if conn.url:
+        # e.g. "mssql+pyodbc://…" -> "mssql+pyodbc"
+        return conn.url.split("://", 1)[0]
+    return ""
 
 
 def _connect_args(conn: Connection, timeout: float) -> dict:
     """Driver-specific connect-time knobs (mainly connect_timeout)."""
     args: dict = {}
-    if conn.driver.startswith(("postgresql", "mysql", "mariadb")):
+    driver = _driver_name(conn)
+    if driver.startswith(("postgresql", "mysql", "mariadb")):
         args["connect_timeout"] = int(max(1, timeout))
+    if conn.windows_sso:
+        # pyodbc: Trusted_Connection=yes tells the ODBC driver to use the
+        # current Windows user's credentials (Kerberos / NTLM). The ODBC
+        # Driver 17+ also supports Authentication=ActiveDirectoryIntegrated
+        # for Azure AD SSO — use that by setting it explicitly via
+        # connect_args in your config if needed.
+        args["Trusted_Connection"] = "yes"
     return args
 
 
 def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Engine:
-    """Engine pointing at the tunnel's local bind (or direct host:port)."""
-    _check_driver_available(conn.driver)
-    password = resolve_password(conn)
+    """Engine pointing at the tunnel's local bind (or direct host:port).
 
-    from sqlalchemy import URL
+    When ``conn.url`` is set, the full SQLAlchemy URL is used as-is and the
+    tunnel's local bind is NOT injected — the URL's own host:port wins. This
+    is intentional: a user who provides a full URL is taking responsibility
+    for the entire connection string.
+    """
+    driver = _driver_name(conn)
+    _check_driver_available(driver)
 
-    url = URL.create(
-        conn.driver,
-        username=conn.username,
-        password=password,
-        host=tunnel.local_host,
-        port=tunnel.local_port,
-        database=conn.database,
-    )
+    from sqlalchemy import URL, make_url
+
+    if conn.url:
+        url = make_url(conn.url)
+    else:
+        password = resolve_password(conn)
+        url = URL.create(
+            driver,
+            username=conn.username if not conn.windows_sso else None,
+            password=password,
+            host=tunnel.local_host,
+            port=tunnel.local_port,
+            database=conn.database,
+        )
     return create_engine(
         url,
         pool_pre_ping=True,

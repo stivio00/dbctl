@@ -177,12 +177,17 @@ class Connection(BaseModel):
     description: str = ""
     aliases: list[str] = Field(default_factory=list)
     type: TunnelType
-    driver: str  # SQLAlchemy URL scheme, e.g. postgresql+psycopg
-    database: str
-    username: str
+    # Either declare individual fields (driver/database/username/password/…) or
+    # provide a single `url:` string (a full SQLAlchemy URL). The two shapes are
+    # mutually exclusive — see the `_check` validator below.
+    url: str | None = None  # full SQLAlchemy connection string (overrides everything below)
+    driver: str | None = None  # SQLAlchemy URL scheme, e.g. postgresql+psycopg
+    database: str | None = None  # database / catalog name
+    username: str | None = None  # not needed for windows_sso (ODBC picks up the Windows user)
     password: str | None = None  # plaintext password (for local dev only)
     password_env: str | None = None  # name of env var holding the DB password
     prompt: bool = False  # prompt for password interactively each run
+    windows_sso: bool = False  # mssql+pyodbc: use Windows Integrated Security (Trusted_Connection=yes)
 
     ssm: SsmTunnel | None = None
     ssh: SshTunnel | None = None
@@ -208,11 +213,51 @@ class Connection(BaseModel):
             case TunnelType.direct:
                 if self.direct is None:
                     raise ValueError("'direct' block required when type=direct")
+
+        if self.url is not None:
+            # Full-URL mode: driver/database/username/password fields are all
+            # redundant — the URL already encodes them. Reject any overlap so
+            # the user doesn't think their `password:` is being used when the
+            # URL's own credentials win silently.
+            overlap = {
+                k: v
+                for k, v in {
+                    "driver": self.driver,
+                    "database": self.database,
+                    "username": self.username,
+                    "password": self.password,
+                    "password_env": self.password_env,
+                }.items()
+                if v
+            }
+            if overlap:
+                raise ValueError(
+                    f"'url' is mutually exclusive with {', '.join(overlap)}; "
+                    "put everything in the URL or drop `url` and use the individual fields"
+                )
+            if self.prompt:
+                raise ValueError("'url' is mutually exclusive with 'prompt: true'")
+            if self.windows_sso:
+                raise ValueError("'url' is mutually exclusive with 'windows_sso: true'")
+            return self
+
+        # Individual-field mode: driver + database are required.
+        if not self.driver:
+            raise ValueError("'driver' is required (or use 'url:' for a full connection string)")
+        if not self.database:
+            raise ValueError("'database' is required (or use 'url:' for a full connection string)")
+
         sources = [bool(self.password), bool(self.password_env), self.prompt]
         if sum(sources) > 1:
             raise ValueError("'password', 'password_env' and 'prompt' are mutually exclusive")
-        if not any(sources):
-            raise ValueError("set 'password', 'password_env' or 'prompt: true' for each connection")
+        if not any(sources) and not self.windows_sso:
+            raise ValueError("set 'password', 'password_env', 'prompt: true', or 'windows_sso: true'")
+        if self.windows_sso and any(sources):
+            raise ValueError("'windows_sso' is mutually exclusive with password/password_env/prompt")
+        if self.windows_sso and not self.driver.startswith("mssql"):
+            raise ValueError("'windows_sso' is only supported with mssql+pyodbc driver")
+        if not self.windows_sso and not self.username:
+            raise ValueError("'username' is required (or set 'windows_sso: true' for mssql SSO)")
         return self
 
 
