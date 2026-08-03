@@ -13,6 +13,9 @@ Execution paths here:
   SQLAlchemy ``inspect()``; emits a per-column mismatch report.
 * ``run_replay``       — copy with a per-row Python transform applied before
   writing to trg (reuses ``run_copy`` internals).
+* ``check_copy_constraints`` — pre-flight scan of src rows (post
+  exclude_columns/transforms) against trg's NOT NULL / max-length column
+  constraints, so a `copy` can be validated before any row is written.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import inspect, text
 
@@ -177,6 +180,27 @@ def _convert_value(v):
     return v
 
 
+# --------------------------------------------------------------------------- #
+# built-in column transforms (``copy_spec.transforms``)
+# --------------------------------------------------------------------------- #
+_COLUMN_TRANSFORMS: dict[str, Callable[[Any], Any]] = {
+    "trim": lambda v: v.strip() if isinstance(v, str) else v,
+    "rstrip": lambda v: v.rstrip() if isinstance(v, str) else v,
+    "lstrip": lambda v: v.lstrip() if isinstance(v, str) else v,
+    "upper": lambda v: v.upper() if isinstance(v, str) else v,
+    "lower": lambda v: v.lower() if isinstance(v, str) else v,
+}
+
+
+def _apply_column_transforms(rec: dict, transforms: dict[str, Any]) -> dict:
+    """Apply ``copy_spec.transforms`` in place; non-string values pass through
+    unchanged (each built-in is a no-op on non-str, see ``_COLUMN_TRANSFORMS``)."""
+    for col, xform in transforms.items():
+        if col in rec:
+            rec[col] = _COLUMN_TRANSFORMS[xform.value if hasattr(xform, "value") else xform](rec[col])
+    return rec
+
+
 def run_copy(
     src: OpenedConn,
     trg: OpenedConn,
@@ -185,6 +209,7 @@ def run_copy(
     batch_size: int | None = None,
     dry_run: bool = False,
     row_transform: Callable[[dict], dict] | None = None,
+    on_progress: Callable[[str, str, int], None] | None = None,
 ) -> CopyReport:
     """Stream rows from ``src`` to ``trg``, table by table, in batches.
 
@@ -192,6 +217,12 @@ def run_copy(
       by ``spec.where``); columns are pulled from the SQLAlchemy mapping so
       no value re-casting is needed for plain types — BSON/value gaps on the
       trg dialect raise at insert time, which is what we want.
+    * ``spec.exclude_columns`` drops named columns (e.g. a source Identity
+      column) before the insert column list is built — the target is
+      expected to generate its own value for whatever was dropped.
+    * ``spec.transforms`` applies a named built-in processor (``trim`` /
+      ``rstrip`` / ``lstrip`` / ``upper`` / ``lower``) to one column's values,
+      after ``exclude_columns`` and before ``row_transform``.
     * Batches are inserted via ``executemany`` of ``batch_size`` rows each
       (default: ``spec.batch_size``).
     * Conflict handling: ``error`` (default) lets the driver raise;
@@ -201,6 +232,15 @@ def run_copy(
       the target table first (bypasses conflict handling entirely).
     * ``row_transform`` (used by ``run_replay``) rewrites each row dict
       in-process before it lands in the insert batch; ``None`` is identity.
+    * On a batch insert failure, when ``spec.diagnose_failures`` is true
+      (the default), the failing batch is bisected in rolled-back
+      transactions to isolate the offending row(s) before re-raising —
+      see ``_diagnose_batch_failure``.
+    * ``on_progress``, when given, is called as ``(event, table, rows)`` with
+      ``event`` one of ``"start"`` / ``"progress"`` / ``"done"`` — ``rows``
+      is the cumulative count written (0 for ``"start"``) for that table so
+      far. This module has no UI dependency itself; the CLI uses the hook to
+      drive a `rich` progress display (see `dbctl.cli._do_copy`).
     """
     batch = batch_size or spec.batch_size
     report = CopyReport()
@@ -215,6 +255,8 @@ def run_copy(
 
     for tbl in tables:
         started = time.monotonic()
+        if on_progress:
+            on_progress("start", tbl, 0)
         where = spec.where.get(tbl) or spec.where.get("*")
         src_sql = f"SELECT * FROM {_quote_ident(tbl, src.engine)}"
         if where:
@@ -222,14 +264,16 @@ def run_copy(
 
         with src.engine.connect() as sc:
             cursor = sc.execute(text(src_sql))
-            keys = list(cursor.keys())
+            src_cols = cursor.keys()
+            insert_cols = [k for k in src_cols if k not in spec.exclude_columns]
             src_count = 0
             inserted = 0
             skipped = 0
             chunk: list[dict] = []
             for row in cursor.mappings():
                 src_count += 1
-                rec = {k: _convert_value(row[k]) for k in keys}
+                rec = {k: _convert_value(row[k]) for k in insert_cols}
+                rec = _apply_column_transforms(rec, spec.transforms)
                 if row_transform is not None:
                     rec = row_transform(rec)
                     if not isinstance(rec, dict):
@@ -238,7 +282,7 @@ def run_copy(
                         )
                 chunk.append(rec)
                 if len(chunk) >= batch:
-                    n_written = _insert_batch(trg, tbl, keys, chunk, spec, dry_run)
+                    n_written = _insert_batch_diagnosed(trg, tbl, insert_cols, chunk, spec, dry_run)
                     inserted += n_written
                     if spec.on_conflict.value == "skip":
                         # Per-batch delta: rows this batch skipped due to
@@ -247,12 +291,16 @@ def run_copy(
                         # we tried to write this batch.
                         skipped += len(chunk) - n_written
                     chunk = []
+                    if on_progress:
+                        on_progress("progress", tbl, src_count if dry_run else inserted)
             if chunk:
-                n_written = _insert_batch(trg, tbl, keys, chunk, spec, dry_run)
+                n_written = _insert_batch_diagnosed(trg, tbl, insert_cols, chunk, spec, dry_run)
                 inserted += n_written
                 if spec.on_conflict.value == "skip":
                     skipped += len(chunk) - n_written
 
+        if on_progress:
+            on_progress("done", tbl, src_count if dry_run else inserted)
         report.results.append(
             CopyResult(
                 table=tbl,
@@ -265,6 +313,38 @@ def run_copy(
         )
     report.total_ms = (time.monotonic() - started_all) * 1000
     return report
+
+
+class CopyError(RuntimeError):
+    """Raised by ``run_copy`` when a batch insert fails and diagnosis (or a
+    plain re-raise) has produced a user-facing message."""
+
+
+def _insert_batch_diagnosed(
+    trg: OpenedConn,
+    table: str,
+    columns: list[str],
+    rows: list[dict],
+    spec: CopySpec,
+    dry_run: bool,
+) -> int:
+    """Wrap ``_insert_batch``; on failure, bisect to the offending row(s) when
+    ``spec.diagnose_failures`` is set (the MSSQL skip path is excluded — it
+    already inserts row-by-row so the failing row is unambiguous)."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        return _insert_batch(trg, table, columns, rows, spec, dry_run)
+    except SQLAlchemyError as exc:
+        # Only genuine DB-execution failures are worth bisecting — a
+        # RuntimeError raised by `_build_insert_sql` itself (e.g. the
+        # postgres `on_conflict=update` guard) fails identically on every
+        # row and isn't a per-row data problem, so let it propagate as-is.
+        is_mssql_row_by_row = spec.on_conflict.value == "skip" and trg.engine.dialect.name == "mssql"
+        if dry_run or not spec.diagnose_failures or is_mssql_row_by_row:
+            raise
+        detail = _diagnose_batch_failure(trg, table, columns, rows, spec, exc)
+        raise CopyError(detail) from exc
 
 
 def _truncate_table(c, table: str, engine) -> None:
@@ -287,6 +367,52 @@ def _truncate_table(c, table: str, engine) -> None:
             c.execute(text(f"DELETE FROM {table_q}"))
 
 
+def _build_insert_sql(table: str, columns: list[str], spec: CopySpec, engine) -> str:
+    """Build the dialect-aware INSERT statement for one batch (excluding the
+    MSSQL ``skip`` path, which has no single-statement shape — see
+    ``_insert_batch_mssql_skip``)."""
+    preparer = engine.dialect.identifier_preparer
+    cols = ", ".join(preparer.quote(c) for c in columns)
+    placeholders = ", ".join(f":{c}" for c in columns)
+    dialect = engine.dialect.name
+    base_sql = f"INSERT INTO {_quote_ident(table, engine)} ({cols}) VALUES ({placeholders})"
+
+    if spec.on_conflict.value == "skip":
+        if dialect == "postgresql":
+            base_sql += " ON CONFLICT DO NOTHING"
+        elif dialect == "mysql" or dialect == "mariadb":
+            base_sql = base_sql.replace("INSERT INTO", "INSERT IGNORE INTO")
+    elif spec.on_conflict.value == "update":
+        if dialect == "postgresql":
+            # Without the PK we can't build an ON CONFLICT (col, …). The caller
+            # is required to provide a `where` filter that won't produce PK
+            # collisions for `update`, OR use `truncate` strategy. Refuse cleanly.
+            raise RuntimeError(
+                "copy on_conflict=update requires a primary-key-aware dialect "
+                "implementation; use on_conflict=truncate or skip instead, or "
+                "write per-table custom SQL via `queries`"
+            )
+        elif dialect in {"mysql", "mariadb"}:
+            base_sql = base_sql.replace("INSERT INTO", "INSERT INTO") + " ON DUPLICATE KEY UPDATE id=id"
+    return base_sql
+
+
+def _execute_insert(conn, table: str, columns: list[str], rows: list[dict], spec: CopySpec, engine) -> int:
+    """Execute the INSERT for one batch on an already-open connection; the
+    caller controls commit/rollback. Not used for the MSSQL ``skip`` path."""
+    sql = _build_insert_sql(table, columns, spec, engine)
+    r = conn.execute(text(sql), rows)
+    # `rowcount` for `executemany` is the number of rows actually written.
+    # For `INSERT IGNORE` / `ON CONFLICT DO NOTHING` it excludes the
+    # duplicates the driver skipped; for plain `INSERT` it equals
+    # `len(rows)` (or the driver raises on a PK conflict, which propagates
+    # as `error`). Some drivers return -1 for "unknown" on `executemany`;
+    # in that case fall back to `len(rows)` so the skip tally is conservative
+    # (skip = 0) rather than wildly wrong.
+    rc = getattr(r, "rowcount", None)
+    return rc if isinstance(rc, int) and rc >= 0 else len(rows)
+
+
 def _insert_batch(
     trg: OpenedConn,
     table: str,
@@ -306,45 +432,66 @@ def _insert_batch(
             _truncate_table(c, table, trg.engine)
         spec.truncate_first = False  # only the first batch truncates
 
-    preparer = trg.engine.dialect.identifier_preparer
-    cols = ", ".join(preparer.quote(c) for c in columns)
-    placeholders = ", ".join(f":{c}" for c in columns)
-    dialect = trg.engine.dialect.name
-    base_sql = f"INSERT INTO {_quote_ident(table, trg.engine)} ({cols}) VALUES ({placeholders})"
-
-    if spec.on_conflict.value == "skip":
-        if dialect == "postgresql":
-            base_sql += " ON CONFLICT DO NOTHING"
-        elif dialect == "mysql" or dialect == "mariadb":
-            base_sql = base_sql.replace("INSERT INTO", "INSERT IGNORE INTO")
-        elif dialect == "mssql":
-            # No native ON CONFLICT; emulate with NOT EXISTS via MERGE is heavy,
-            # so fall back to a per-row NOT EXISTS guard for each batch.
-            return _insert_batch_mssql_skip(trg, table, columns, rows)
-    elif spec.on_conflict.value == "update":
-        if dialect == "postgresql":
-            # Without the PK we can't build an ON CONFLICT (col, …). The caller
-            # is required to provide a `where` filter that won't produce PK
-            # collisions for `update`, OR use `truncate` strategy. Refuse cleanly.
-            raise RuntimeError(
-                "copy on_conflict=update requires a primary-key-aware dialect "
-                "implementation; use on_conflict=truncate or skip instead, or "
-                "write per-table custom SQL via `queries`"
-            )
-        elif dialect in {"mysql", "mariadb"}:
-            base_sql = base_sql.replace("INSERT INTO", "INSERT INTO") + " ON DUPLICATE KEY UPDATE id=id"
+    if spec.on_conflict.value == "skip" and trg.engine.dialect.name == "mssql":
+        # No native ON CONFLICT; emulate with NOT EXISTS via MERGE is heavy,
+        # so fall back to a per-row NOT EXISTS guard for each batch.
+        return _insert_batch_mssql_skip(trg, table, columns, rows)
 
     with trg.engine.begin() as c:
-        r = c.execute(text(base_sql), rows)
-    # `rowcount` for `executemany` is the number of rows actually written.
-    # For `INSERT IGNORE` / `ON CONFLICT DO NOTHING` it excludes the
-    # duplicates the driver skipped; for plain `INSERT` it equals
-    # `len(rows)` (or the driver raises on a PK conflict, which propagates
-    # as `error`). Some drivers return -1 for "unknown" on `executemany`;
-    # in that case fall back to `len(rows)` so the skip tally is conservative
-    # (skip = 0) rather than wildly wrong.
-    rc = getattr(r, "rowcount", None)
-    return rc if isinstance(rc, int) and rc >= 0 else len(rows)
+        return _execute_insert(c, table, columns, rows, spec, trg.engine)
+
+
+class _RolledBack(Exception):
+    """Sentinel raised inside a trial ``engine.begin()`` block so the
+    transaction rolls back even though the INSERT itself succeeded."""
+
+
+def _bisect_failing_rows(
+    trg: OpenedConn, table: str, columns: list[str], rows: list[dict], spec: CopySpec
+) -> tuple[int, int, BaseException]:
+    """Recursively bisect ``rows`` (each attempt rolled back, never
+    committed) to find the smallest sub-range that reproduces the failure.
+
+    Returns ``(offset, length, exception)`` relative to the original list.
+    Falls back to reporting the whole range when neither half reproduces the
+    failure on its own (e.g. a cross-row constraint only violated jointly).
+    """
+
+    def attempt(batch: list[dict]) -> BaseException | None:
+        try:
+            with trg.engine.begin() as c:
+                _execute_insert(c, table, columns, batch, spec, trg.engine)
+                raise _RolledBack
+        except _RolledBack:
+            return None
+        except Exception as e:  # noqa: BLE001 - captured for diagnosis, not re-raised here
+            return e
+
+    def bisect(offset: int, batch: list[dict]) -> tuple[int, int, BaseException] | None:
+        exc = attempt(batch)
+        if exc is None:
+            return None
+        if len(batch) == 1:
+            return offset, 1, exc
+        mid = len(batch) // 2
+        return bisect(offset, batch[:mid]) or bisect(offset + mid, batch[mid:]) or (offset, len(batch), exc)
+
+    return bisect(0, rows) or (0, len(rows), RuntimeError("could not reproduce the failure in isolation"))
+
+
+def _diagnose_batch_failure(
+    trg: OpenedConn, table: str, columns: list[str], rows: list[dict], spec: CopySpec, exc: BaseException
+) -> str:
+    """Bisect the failed batch and return a one-line message naming the
+    offending row(s) plus the driver's root-cause error (not the full
+    wrapped SQLAlchemy exception)."""
+    from dbctl.db import fmt_db_error
+
+    offset, length, sub_exc = _bisect_failing_rows(trg, table, columns, rows, spec)
+    root = getattr(sub_exc, "orig", None) or sub_exc.__cause__ or sub_exc
+    msg = fmt_db_error(root) if isinstance(root, BaseException) else str(root)
+    row_desc = f"row {offset}" if length == 1 else f"rows {offset}-{offset + length - 1}"
+    return f"table {table!r}: insert failed at {row_desc} of this batch: {msg}"
 
 
 def _insert_batch_mssql_skip(
@@ -371,6 +518,71 @@ def _insert_batch_mssql_skip(
             r = c.execute(text(sql), row)
             inserted += r.rowcount or 0
     return inserted
+
+
+# --------------------------------------------------------------------------- #
+# pre-flight data validation — NOT NULL / max-length checks before a copy
+# --------------------------------------------------------------------------- #
+@dataclass
+class ConstraintViolation:
+    table: str
+    column: str
+    kind: str  # "not_null" | "too_long"
+    row_index: int  # 0-based index within this table's src rows (post exclude/transform)
+    detail: str
+
+
+def _column_max_length(col: dict) -> int | None:
+    """Best-effort ``VARCHAR(n)``-style length limit, or None when the
+    column's type has no declared length (INTEGER, TEXT, etc.)."""
+    return getattr(col.get("type"), "length", None)
+
+
+def check_copy_constraints(src: OpenedConn, trg: OpenedConn, spec: CopySpec) -> list[ConstraintViolation]:
+    """Pre-flight scan: for each table `copy` would touch, read every src row
+    (after ``exclude_columns``/``transforms`` — the same shape that would
+    actually be inserted) and check it against trg's NOT NULL and
+    declared-length column constraints, without writing anything.
+
+    This is a full table scan on both schema introspection and src data, so
+    it is opt-in (``--validate-data`` on ``dbctl <copy-op> ...``) rather than
+    run on every copy — it exists to catch, in one pass, exactly the kind of
+    violation that would otherwise only surface as a failed INSERT partway
+    through a multi-million-row copy.
+    """
+    violations: list[ConstraintViolation] = []
+    tables = _resolve_tables(spec, src.engine)
+
+    for tbl in tables:
+        trg_cols = {c["name"]: c for c in inspect(trg.engine).get_columns(tbl)}
+        where = spec.where.get(tbl) or spec.where.get("*")
+        src_sql = f"SELECT * FROM {_quote_ident(tbl, src.engine)}"
+        if where:
+            src_sql += f" WHERE {where}"
+
+        with src.engine.connect() as sc:
+            cursor = sc.execute(text(src_sql))
+            src_cols = cursor.keys()
+            insert_cols = [k for k in src_cols if k not in spec.exclude_columns]
+            for idx, row in enumerate(cursor.mappings()):
+                rec = _apply_column_transforms({k: row[k] for k in insert_cols}, spec.transforms)
+                for col in insert_cols:
+                    trg_col = trg_cols.get(col)
+                    if trg_col is None:
+                        continue  # column doesn't exist on trg — not this check's job
+                    val = rec[col]
+                    if val is None and not trg_col.get("nullable", True):
+                        violations.append(
+                            ConstraintViolation(tbl, col, "not_null", idx, "NULL value for a NOT NULL column")
+                        )
+                    max_len = _column_max_length(trg_col)
+                    if max_len and isinstance(val, str) and len(val) > max_len:
+                        violations.append(
+                            ConstraintViolation(
+                                tbl, col, "too_long", idx, f"length {len(val)} exceeds max length {max_len}"
+                            )
+                        )
+    return violations
 
 
 # --------------------------------------------------------------------------- #
@@ -665,12 +877,14 @@ def run_replay(
     *,
     batch_size: int | None = None,
     dry_run: bool = False,
+    on_progress: Callable[[str, str, int], None] | None = None,
 ) -> CopyReport:
     """Bulk-copy with a per-row transform. Reuses ``run_copy``.
 
     The transform resolves to a ``Callable[[dict], dict]`` and is applied to
     each row before it lands in the insert batch. ``"identity"`` makes the
-    replay equivalent to a plain copy.
+    replay equivalent to a plain copy. ``on_progress`` is passed straight
+    through to ``run_copy`` — see its docstring.
     """
     from dbctl.config import CopySpec
 
@@ -689,4 +903,5 @@ def run_replay(
         batch_size=batch_size or spec.batch_size,
         dry_run=dry_run,
         row_transform=transform,
+        on_progress=on_progress,
     )

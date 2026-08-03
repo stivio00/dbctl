@@ -288,6 +288,29 @@ class OnConflict(StrEnum):
     truncate = "truncate"  # TRUNCATE target table first, then bulk INSERT
 
 
+class ColumnTransform(StrEnum):
+    """Built-in per-column value processors for `copy_spec.transforms`.
+
+    ``trim`` strips both ends; ``rstrip``/``lstrip`` strip one end only —
+    useful for source dialects (e.g. SQL Server) whose default collation
+    ignores trailing whitespace in comparisons, which a byte-exact target
+    (e.g. PostgreSQL) does not.
+
+    The member *names* below are suffixed with an underscore
+    (``rstrip_``, ``lstrip_``, ``upper_``, ``lower_``) — StrEnum members are
+    real ``str`` instances, so a member literally named e.g. ``rstrip``
+    would shadow the inherited ``str.rstrip`` method on the class. The wire
+    *value* (what appears in YAML and what pydantic validates against) is
+    unaffected: ``transforms: { col: rstrip }`` still resolves correctly.
+    """
+
+    trim = "trim"
+    rstrip_ = "rstrip"
+    lstrip_ = "lstrip"
+    upper_ = "upper"
+    lower_ = "lower"
+
+
 class DiffSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: list[str] = Field(default_factory=list)
@@ -303,6 +326,14 @@ class CopySpec(BaseModel):
     on_conflict: OnConflict = OnConflict.error
     where: dict[str, str] = Field(default_factory=dict)  # per-table WHERE pushed into src SELECT
     truncate_first: bool = False  # TRUNCATE target table before inserting (manual shortcut)
+    # dropped from every table before insert (e.g. a source Identity/serial
+    # column the target generates itself)
+    exclude_columns: list[str] = Field(default_factory=list)
+    transforms: dict[str, ColumnTransform] = Field(
+        default_factory=dict
+    )  # column name -> built-in value processor, applied after exclude_columns and before insert
+    diagnose_failures: bool = True  # on a batch insert failure, bisect to the offending row(s) and
+    # surface the driver's root-cause error instead of the full wrapped SQLAlchemy exception
 
 
 class SyncSpec(BaseModel):

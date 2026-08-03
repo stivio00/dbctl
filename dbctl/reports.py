@@ -9,11 +9,35 @@ from typing import Any
 
 import yaml
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from dbctl.config import OutputFormat
 
 _console = Console()
+
+
+def copy_progress() -> Progress:
+    """Build the live per-table progress display for `copy`/`replay`.
+
+    Driven by `multi.run_copy`'s `on_progress("start"|"progress"|"done",
+    table, rows)` hook — one spinner-tracked row per table, with a running
+    row count (no percentage/ETA, since the total row count isn't known
+    without an extra COUNT(*) pass the copy deliberately avoids). Falls back
+    to plain sequential output automatically when stdout isn't a terminal
+    (e.g. piped to a file or captured by a test runner).
+
+    Uses the ASCII ``"line"`` spinner style (``-\\|/``) rather than rich's
+    default braille glyphs, which fall outside the legacy Windows console's
+    cp1252 code page and raise `UnicodeEncodeError` there.
+    """
+    return Progress(
+        SpinnerColumn(spinner_name="line"),
+        TextColumn("[bold cyan]{task.fields[table]}"),
+        TextColumn("{task.completed:,} rows"),
+        TimeElapsedColumn(),
+        console=_console,
+    )
 
 
 def _rows_for_table(rows: list[dict]) -> tuple[list[str], list[list[Any]]]:
@@ -199,6 +223,23 @@ def render_sync_report(report, *, title: str = "") -> None:
         f"[dim]total: {ins_total} inserted / {upd_total} updated / "
         f"{del_total} deleted / {unchanged_total} unchanged in {report.total_ms:.1f}ms[/dim]"
     )
+
+
+def render_constraint_violations(violations, *, title: str = "") -> None:
+    """Render the `list[ConstraintViolation]` from `multi.check_copy_constraints`
+    as a per-row mismatch table (used by `copy --validate-data`).
+
+    Columns: table | column | kind | row | detail
+    """
+    table = Table(title=title or "constraint violations", header_style="bold cyan")
+    for col in ("table", "column", "kind", "row", "detail"):
+        table.add_column(col)
+    kind_color = {"not_null": "red", "too_long": "yellow"}
+    for v in violations:
+        color = kind_color.get(v.kind, "white")
+        table.add_row(v.table, v.column, f"[{color}]{v.kind}[/{color}]", str(v.row_index), v.detail)
+    _console.print(table)
+    _console.print(f"[red]{len(violations)} violation(s) found — copy aborted, nothing was written[/red]")
 
 
 def render_validate_report(report, *, title: str = "") -> None:

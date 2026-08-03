@@ -496,6 +496,27 @@ def _copy_click_params(op: Operation) -> list[click.Parameter]:
                 help="Read src + simulate inserts; write nothing to trg.",
             )
         )
+        flags.append(
+            click.Option(
+                ["--validate-data/--no-validate-data"],
+                default=False,
+                help=(
+                    "Pre-flight: scan src rows (post exclude_columns/transforms) against trg's "
+                    "NOT NULL / max-length column constraints before writing anything; "
+                    "aborts the copy if any violation is found."
+                ),
+            )
+        )
+        flags.append(
+            click.Option(
+                ["--diagnose-failures/--no-diagnose-failures"],
+                default=op.copy_spec.diagnose_failures,
+                help=(
+                    "On a batch insert failure, bisect to the offending row(s) and report the "
+                    f"driver's root-cause error (default {op.copy_spec.diagnose_failures})."
+                ),
+            )
+        )
     elif op.sync_spec is not None:
         flags.append(
             click.Option(
@@ -575,6 +596,8 @@ def _make_multi_op_command(
         on_conflict = kwargs.pop("on_conflict", None)
         dry_run = bool(kwargs.pop("dry_run", False))
         delete_extras = kwargs.pop("delete_extras", None)
+        validate_data = bool(kwargs.pop("validate_data", False))
+        diagnose_failures = kwargs.pop("diagnose_failures", None)
 
         from dbctl.audit import append
         from dbctl.connections import resolve
@@ -612,7 +635,18 @@ def _make_multi_op_command(
         mode = op.mode.value
         try:
             if mode == "copy":
-                _do_copy(ctx, op, op_name, role_objs, on_conflict, batch_size, dry_run, started)
+                _do_copy(
+                    ctx,
+                    op,
+                    op_name,
+                    role_objs,
+                    on_conflict,
+                    batch_size,
+                    dry_run,
+                    validate_data,
+                    diagnose_failures,
+                    started,
+                )
                 return  # _do_copy also handles audit + render + cleanup
             if mode == "sync":
                 _do_sync(ctx, op, op_name, role_objs, dry_run, delete_extras, started)
@@ -696,6 +730,24 @@ def _make_multi_op_command(
 # --------------------------------------------------------------------------- #
 # copy-mode dispatch
 # --------------------------------------------------------------------------- #
+def _with_copy_progress(fn, *args, **kwargs):
+    """Call `run_copy`/`run_replay` wrapped in a live per-table `rich`
+    progress display, driven by the `on_progress` hook they both accept
+    (see `multi.run_copy`'s docstring)."""
+    from dbctl.reports import copy_progress
+
+    task_ids: dict[str, int] = {}
+    with copy_progress() as progress:
+
+        def on_progress(event: str, table: str, rows: int) -> None:
+            if event == "start":
+                task_ids[table] = progress.add_task("copy", table=table, total=None)
+            else:
+                progress.update(task_ids[table], completed=rows)
+
+        return fn(*args, on_progress=on_progress, **kwargs)
+
+
 def _do_copy(
     ctx,
     op,
@@ -704,13 +756,15 @@ def _do_copy(
     on_conflict,
     batch_size,
     dry_run,
+    validate_data,
+    diagnose_failures,
     started,
 ) -> None:
     """Drive `run_copy` against the opened src/trg engines and render."""
     from dbctl.audit import append
     from dbctl.config import OnConflict
-    from dbctl.multi import CopyReport, run_copy  # noqa: F401 (CopyReport for typing)
-    from dbctl.reports import render_copy_report
+    from dbctl.multi import CopyReport, check_copy_constraints, run_copy  # noqa: F401 (CopyReport for typing)
+    from dbctl.reports import render_constraint_violations, render_copy_report
 
     if op.roles != ["src", "trg"]:
         err_console.print(f"[red]copy operation {op_name!r}: roles must be [src, trg], got {op.roles}[/red]")
@@ -733,15 +787,39 @@ def _do_copy(
         spec.on_conflict = OnConflict.error
     if dry_run:
         spec.truncate_first = False
+    if diagnose_failures is not None:
+        spec.diagnose_failures = diagnose_failures
 
     src_role, _, src_oc = role_objs[0]
     trg_role, _, trg_oc = role_objs[1]
+
+    if validate_data:
+        console.print(
+            f"[yellow]pre-flight:[/yellow] scanning {src_role} rows against {trg_role}'s "
+            "column constraints; nothing will be written yet"
+        )
+        violations = check_copy_constraints(src_oc, trg_oc, spec)
+        if violations:
+            render_constraint_violations(violations, title=f"{op_name}: constraint violations")
+            append(
+                profile=ctx.obj.get("profile"),
+                connection=f"{role_objs[0][1]}|{role_objs[1][1]}",
+                operation=op_name,
+                params={"validate_data": True},
+                mode="copy",
+                status="constraint-violation",
+                duration_ms=(time.monotonic() - started) * 1000,
+                actor=ctx.obj.get("actor"),
+            )
+            raise SystemExit(6)
+        console.print("[green]✓[/green] pre-flight: no constraint violations found")
+
     if dry_run:
         console.print(
             f"[yellow]dry-run:[/yellow] reading from {src_role} and simulating "
             f"inserts into {trg_role}; nothing will be written"
         )
-    report = run_copy(src_oc, trg_oc, spec, batch_size=batch_size, dry_run=dry_run)
+    report = _with_copy_progress(run_copy, src_oc, trg_oc, spec, batch_size=batch_size, dry_run=dry_run)
 
     role_conns_str = "|".join(ctx.params.get(r.upper(), r) or r for r in op.roles)
     append(
@@ -909,7 +987,9 @@ def _do_replay(ctx, op, op_name, role_objs, batch_size, dry_run, started) -> Non
             f"[yellow]dry-run:[/yellow] replaying {src_role} → {trg_role} with transform "
             f"{op.replay_spec.transform!r}; nothing will be written"
         )
-    report = run_replay(src_oc, trg_oc, op.replay_spec, batch_size=batch_size, dry_run=dry_run)
+    report = _with_copy_progress(
+        run_replay, src_oc, trg_oc, op.replay_spec, batch_size=batch_size, dry_run=dry_run
+    )
 
     role_conns_str = "|".join(ctx.params.get(r.upper(), r) or r for r in op.roles)
     append(
