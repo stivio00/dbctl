@@ -313,7 +313,7 @@ def test_copy_op_dispatches_run_copy(tmp_path, monkeypatch):
         oc = SimpleNamespace(name=name, engine=None, tunnel=mock.MagicMock())
         yield oc
 
-    def fake_run_copy(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False):
+    def fake_run_copy(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False, on_progress=None):
         captured["src"] = src_oc.name
         captured["trg"] = trg_oc.name
         captured["batch_size"] = batch_size
@@ -367,7 +367,7 @@ def test_copy_op_dry_run_does_not_mutate_target(tmp_path, monkeypatch):
     def fake_opened(name, conn):
         yield SimpleNamespace(name=name, engine=None, tunnel=mock.MagicMock())
 
-    def fake_run_copy(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False):
+    def fake_run_copy(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False, on_progress=None):
         captured["dry_run"] = dry_run
         from dbctl.multi import CopyReport, CopyResult
 
@@ -730,7 +730,7 @@ def test_replay_op_dispatches_run_replay(tmp_path, monkeypatch):
     def fake_opened(name, conn):
         yield SimpleNamespace(name=name, engine=None, tunnel=mock.MagicMock())
 
-    def fake_run_replay(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False):
+    def fake_run_replay(src_oc, trg_oc, spec, *, batch_size=None, dry_run=False, on_progress=None):
         captured["src"] = src_oc.name
         captured["trg"] = trg_oc.name
         captured["transform"] = spec.transform

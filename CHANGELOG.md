@@ -5,6 +5,36 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-08-03
+
+### Added
+
+- **`copy_spec.exclude_columns`** — drop named columns from every declared
+  table before the insert column list is built. Written for the common
+  case of a source Identity/serial column (e.g. SQL Server `IDENTITY`)
+  that the target generates itself.
+- **`copy_spec.transforms`** — a `column -> built-in processor` map
+  applied to every row before insert: `trim` / `rstrip` / `lstrip` /
+  `upper` / `lower`. Each is a no-op on non-string values. `rstrip` in
+  particular targets the SQL Server → PostgreSQL migration case, where
+  the source collation ignores trailing whitespace in comparisons but a
+  byte-exact target does not.
+- **`copy --validate-data` / `--no-validate-data`** — a pre-flight pass
+  (`multi.check_copy_constraints`) that scans src rows, after
+  `exclude_columns`/`transforms`, against the target schema's `NOT NULL`
+  and declared max-length column constraints, and aborts the copy
+  (exit 6) before any row is written if a violation is found.
+- **`copy_spec.diagnose_failures`** (default `true`) / `copy
+  --diagnose-failures` / `--no-diagnose-failures` — on a batch insert
+  failure, bisect the failing batch in rolled-back trial transactions to
+  isolate the offending row(s), and report the driver's root-cause error
+  instead of the full wrapped SQLAlchemy exception.
+
+Together these let `dbctl copy` (plus the existing `dbctl table-counts`)
+fully replace a hand-written cross-engine migration script that used to
+carry its own identity-column drop, whitespace-trim, pre-flight
+constraint scan, and failure bisection logic.
+
 ## [0.6.6] — 2026-08-03
 
 ### Added
