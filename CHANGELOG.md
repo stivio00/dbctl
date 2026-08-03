@@ -29,14 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure, bisect the failing batch in rolled-back trial transactions to
   isolate the offending row(s), and report the driver's root-cause error
   instead of the full wrapped SQLAlchemy exception.
-- **Live per-table progress** for `copy`/`replay`, via a UI-free
-  `on_progress` hook on `run_copy`/`run_replay` rendered with `rich` in
-  the CLI.
-- **CI: `auto-tag` job** — on a green push to `main`, tags
-  `v<pyproject version>` automatically if that tag doesn't exist yet,
-  which (with a `RELEASE_PAT` repo secret configured — see the job's
-  comments) triggers the existing `publish`/`release` jobs without a
-  manual `git tag && git push --tags` step.
 
 Together these let `dbctl copy` (plus the existing `dbctl table-counts`)
 fully replace a hand-written cross-engine migration script that used to

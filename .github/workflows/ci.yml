@@ -141,63 +141,6 @@ jobs:
           if-no-files-found: error
 
   # ----------------------------------------------------------------------- #
-  # auto-tag — on a green push to main, tag `v<pyproject version>` if that
-  # tag doesn't exist yet. Pushing the tag is meant to trigger a fresh
-  # workflow run on `tags: ["v*"]` that re-runs test+build and then gates
-  # publish (PyPI) + release (GitHub Release) — this job itself never
-  # publishes anything, it only creates the tag. A merge that doesn't bump
-  # the version is a no-op here (the tag from the prior bump already
-  # exists).
-  #
-  # IMPORTANT: GitHub does not let a push authenticated with the default
-  # `GITHUB_TOKEN` trigger further workflow runs (anti-recursion
-  # protection) — a tag pushed with it would NOT fire the `publish`/
-  # `release` jobs below. For the auto-tag -> publish -> release chain to
-  # actually run end-to-end, add a repo secret `RELEASE_PAT` (a
-  # fine-grained PAT, or better, a GitHub App installation token via
-  # actions/create-github-app-token, with `contents: write` and
-  # `workflows` disabled) and this job will use it. Without that secret,
-  # the tag still gets created correctly, it just won't self-trigger —
-  # fire publish/release for it manually with:
-  #   gh workflow run ci.yml --ref v<version>
-  # ----------------------------------------------------------------------- #
-  auto-tag:
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # See the IMPORTANT note above: this must be a PAT/App token, not
-          # the default GITHUB_TOKEN, for the pushed tag to self-trigger.
-          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
-      - name: Read version from pyproject.toml
-        id: version
-        run: |
-          VERSION=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Create + push tag if missing
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
-          HAS_RELEASE_PAT: ${{ secrets.RELEASE_PAT != '' }}
-        run: |
-          if gh api "repos/${{ github.repository }}/git/refs/tags/v${VERSION}" >/dev/null 2>&1; then
-            echo "tag v${VERSION} already exists — skipping (version wasn't bumped)"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
-          if [ "$HAS_RELEASE_PAT" != "true" ]; then
-            echo "::notice::Pushed v${VERSION} with the default GITHUB_TOKEN, which does not auto-trigger the publish/release jobs. Add a 'RELEASE_PAT' repo secret so this happens automatically next time, or fire it now with: gh workflow run ci.yml --ref v${VERSION}"
-          fi
-
-  # ----------------------------------------------------------------------- #
   # publish — only on a pushed v* tag, gated on test + build
   # ----------------------------------------------------------------------- #
   publish:
