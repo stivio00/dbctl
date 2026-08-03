@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import atexit
+import configparser
 import hashlib
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,28 +19,77 @@ from dbctl.tunnels.base import _terminate, find_free_port, wait_local_open
 _console = Console(stderr=True)
 
 
-def _sso_cache_path(profile: str) -> Path:
-    """Return the AWS SSO token cache file for the given profile.
+def _aws_config_path() -> Path:
+    """Return the AWS CLI config file path, honoring ``AWS_CONFIG_FILE``
+    exactly like the ``aws`` CLI itself does."""
+    override = os.environ.get("AWS_CONFIG_FILE")
+    return Path(override) if override else Path.home() / ".aws" / "config"
 
-    AWS caches SSO tokens at ``~/.aws/sso/cache/<sha256(profile)>.json``
-    (the hash is SHA-256 of the profile name, hex-encoded). Each file
-    contains ``accessToken`` + ``expiresAt`` (ISO 8601 UTC).
+
+def _sso_cache_key(profile: str) -> str | None:
+    """Resolve the AWS CLI SSO token-cache *key* for ``profile`` by reading
+    ``~/.aws/config`` (or ``$AWS_CONFIG_FILE``).
+
+    The AWS CLI caches SSO tokens under a filename derived from a specific
+    string, which depends on the profile's config style:
+
+    * **`sso_session`-based** (the config ``aws configure sso`` now
+      generates, and what a separate ``[sso-session <name>]`` block
+      implies) — the cache key is the **session name** itself, e.g.
+      ``sso_session = my-session`` → key is ``"my-session"``. Note this is
+      *not* the session's ``sso_start_url``.
+    * **legacy inline SSO** (no ``sso_session``, `sso_start_url` set
+      directly on the profile) — the cache key is that ``sso_start_url``.
+
+    Returns ``None`` if the profile (or `default`) isn't found in the
+    config file, or has neither ``sso_session`` nor ``sso_start_url`` (e.g.
+    a plain access-key profile — not an SSO profile at all).
     """
-    key = hashlib.sha256(profile.encode()).hexdigest()
-    return Path.home() / ".aws" / "sso" / "cache" / f"{key}.json"
+    config_path = _aws_config_path()
+    if not config_path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(config_path)
+    except configparser.Error:
+        return None
+    section_name = "default" if profile == "default" else f"profile {profile}"
+    if section_name not in parser:
+        return None
+    section = parser[section_name]
+    session_name = section.get("sso_session")
+    if session_name:
+        return session_name
+    return section.get("sso_start_url")
+
+
+def _sso_cache_path(profile: str) -> Path | None:
+    """Return the AWS SSO token cache file for the given profile, or
+    ``None`` when the profile isn't an SSO profile (or isn't found) — see
+    ``_sso_cache_key``.
+
+    AWS caches SSO tokens at ``~/.aws/sso/cache/<sha1(key)>.json`` (SHA-1,
+    hex-encoded, of the cache key resolved by ``_sso_cache_key`` — *not* a
+    hash of the profile name). Each file contains ``accessToken`` +
+    ``expiresAt`` (ISO 8601 UTC).
+    """
+    key = _sso_cache_key(profile)
+    if key is None:
+        return None
+    hashed = hashlib.sha1(key.encode()).hexdigest()  # AWS CLI's own cache-key scheme
+    return Path.home() / ".aws" / "sso" / "cache" / f"{hashed}.json"
 
 
 def _sso_token_is_valid(profile: str) -> bool:
     """Check whether the SSO token for ``profile`` exists and hasn't expired.
 
-    Returns ``True`` when the token is valid (or when the profile has no
-    SSO token cached but we determine it's not an SSO profile — e.g. a
-    plain access-key profile). Returns ``False`` only when a token file
-    exists but is past its ``expiresAt`` timestamp, or when no token file
-    exists at all (which means the user needs to log in).
+    Returns ``True`` when the token is valid. Returns ``False`` when the
+    profile can't be resolved to an SSO cache key, when a token file exists
+    but is past its ``expiresAt`` timestamp, or when no token file exists at
+    all (which means the user needs to log in).
     """
     cache_file = _sso_cache_path(profile)
-    if not cache_file.exists():
+    if cache_file is None or not cache_file.exists():
         return False
     try:
         data = json.loads(cache_file.read_text())

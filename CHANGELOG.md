@@ -5,6 +5,25 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-08-03
+
+### Fixed
+
+- **SSM tunnel SSO token check always reported "missing/expired" for
+  `sso_session`-based profiles** — `_sso_cache_path` hashed the *profile
+  name* with SHA-256, but the AWS CLI actually names SSO token-cache
+  files `sha1(<key>).json`, where `<key>` is the `sso_session` name (for
+  profiles using the now-recommended `sso_session = <name>` config
+  style — what `aws configure sso` generates by default) or the
+  profile's own `sso_start_url` (legacy inline-SSO profiles). Since
+  neither the hash algorithm nor the hashed value matched what the AWS
+  CLI actually wrote, `dbctl` reported every such profile as logged out
+  immediately after a successful `aws sso login`, and the automatic
+  re-login path (`disable_automatic_sso_login: false`, the default) hit
+  the same broken check right after re-authenticating. Fixed by
+  resolving the real cache key from `~/.aws/config` (or
+  `$AWS_CONFIG_FILE`) and hashing it with SHA-1.
+
 ## [0.7.0] — 2026-08-03
 
 ### Added
