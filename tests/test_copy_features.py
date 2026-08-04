@@ -237,12 +237,12 @@ def test_copy_spec_accepts_exclude_columns_and_transforms():
             "copy_spec": {
                 "tables": ["t"],
                 "exclude_columns": ["Id"],
-                "transforms": {"model_clean": "rstrip"},
+                "transforms": {"notes": "rstrip"},
             },
         }
     )
     assert op.copy_spec.exclude_columns == ["Id"]
-    assert op.copy_spec.transforms == {"model_clean": ColumnTransform.rstrip_}
+    assert op.copy_spec.transforms == {"notes": ColumnTransform.rstrip_}
     assert op.copy_spec.diagnose_failures is True  # default on
 
 
