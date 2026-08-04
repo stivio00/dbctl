@@ -26,6 +26,8 @@ class TunnelType(StrEnum):
     ssh = "ssh"
     k8s = "k8s"
     direct = "direct"
+    azure = "azure"
+    gcp = "gcp"
 
 
 class OpScope(StrEnum):
@@ -146,6 +148,37 @@ class DirectTunnel(BaseModel):
     port: int = 5432
 
 
+class AzureBastionTunnel(BaseModel):
+    """Azure Bastion tunnel via ``az network bastion tunnel`` subprocess.
+
+    Requires an Azure Bastion resource on the Standard SKU (native client
+    support / tunnel command needs Standard, not Basic) in the target VM's
+    VNet.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    resource_group: str
+    bastion_name: str
+    target_resource_id: str  # full ARM resource id of the target VM
+    subscription: str | None = None  # az CLI --subscription (name or id)
+    remote_port: int = 5432  # --resource-port on the target VM
+    local_port: int = 0  # 0 = auto-pick free port
+
+
+class GcpIapTunnel(BaseModel):
+    """GCP Identity-Aware Proxy TCP tunnel via ``gcloud compute
+    start-iap-tunnel`` subprocess. Requires IAP TCP forwarding enabled on
+    the target instance's network and the caller to have the
+    ``roles/iap.tunnelResourceAccessor`` IAM role."""
+
+    model_config = ConfigDict(extra="forbid")
+    project: str | None = None  # gcloud --project; omit to use the CLI's active project
+    zone: str
+    instance: str
+    remote_port: int = 5432  # port on the instance to forward
+    local_port: int = 0  # 0 = auto-pick free port
+
+
 # --------------------------------------------------------------------------- #
 # info / healthcheck
 # --------------------------------------------------------------------------- #
@@ -194,6 +227,8 @@ class Connection(BaseModel):
     ssh: SshTunnel | None = None
     k8s: K8sTunnel | None = None
     direct: DirectTunnel | None = None
+    azure: AzureBastionTunnel | None = None
+    gcp: GcpIapTunnel | None = None
 
     healthcheck: Healthcheck = Field(default_factory=Healthcheck)
     info: list[InfoQuery] = Field(default_factory=list)
@@ -214,6 +249,12 @@ class Connection(BaseModel):
             case TunnelType.direct:
                 if self.direct is None:
                     raise ValueError("'direct' block required when type=direct")
+            case TunnelType.azure:
+                if self.azure is None:
+                    raise ValueError("'azure' block required when type=azure")
+            case TunnelType.gcp:
+                if self.gcp is None:
+                    raise ValueError("'gcp' block required when type=gcp")
 
         if self.url is not None:
             # Full-URL mode: driver/database/username/password fields are all

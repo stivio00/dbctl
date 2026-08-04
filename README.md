@@ -51,6 +51,8 @@ your shell history. (For ad-hoc exploration open the tunnel with
 | `ssh`    | Classic `ssh -N -L` port-forward through a bastion             | `ssh` CLI on PATH, an SSH key file |
 | `k8s`    | `kubectl port-forward` to a Service / Pod in a cluster         | `kubectl` CLI on PATH, a valid kubeconfig |
 | `direct` | No tunnel — connect to the upstream host:port directly        | none |
+| `azure`  | Azure Bastion tunnel to a VM (`az network bastion tunnel`)     | `az` CLI on PATH, active `az login` session, Bastion on Standard SKU |
+| `gcp`    | IAP TCP tunnel to a Compute Engine instance (`gcloud compute start-iap-tunnel`) | `gcloud` CLI on PATH, active `gcloud auth login` session |
 
 Each connection declares its SQLAlchemy URL scheme (`postgresql+psycopg`,
 `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`, `oracle+oracledb`,
@@ -111,9 +113,11 @@ uv pip install -e .
 uv run dbctl --help
 ```
 
-The `aws` and `ssh` binaries are expected on `PATH`. No `boto3`, no
-`paramiko` — dbctl always shells out so you keep your existing SSO session,
-key agents, and MFA flows.
+The `aws`, `ssh`, `az`, and `gcloud` binaries are expected on `PATH` (only
+the ones your configured tunnel types actually need — `dbctl doctor` tells
+you which). No `boto3`, no `paramiko`, no Azure/GCP SDKs — dbctl always
+shells out so you keep your existing SSO session, key agents, and MFA
+flows.
 
 ## Quick start with the bundled docker-compose fleet
 

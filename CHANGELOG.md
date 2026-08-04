@@ -5,6 +5,28 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] — 2026-08-04
+
+### Added
+
+- **`azure` tunnel type** — reaches a VM through Azure Bastion via
+  `az network bastion tunnel` (requires the Bastion resource on the
+  Standard SKU). New `AzureBastionTunnel` connection block
+  (`resource_group` / `bastion_name` / `target_resource_id` /
+  `subscription` / `remote_port` / `local_port`), same lifecycle
+  (subprocess + `atexit` cleanup, `local_port: 0` auto-pick) as the
+  existing `ssm` / `ssh` / `k8s` tunnels. Shells out to the `az` CLI —
+  no Azure SDK dependency.
+- **`gcp` tunnel type** — reaches a Compute Engine instance through
+  Identity-Aware Proxy via `gcloud compute start-iap-tunnel` (requires
+  IAP TCP forwarding on the instance's network and the
+  `roles/iap.tunnelResourceAccessor` IAM role). New `GcpIapTunnel`
+  connection block (`project` / `zone` / `instance` / `remote_port` /
+  `local_port`). Shells out to the `gcloud` CLI — no GCP SDK dependency.
+- Both new types are wired into `dbctl doctor` (reports `az`/`gcloud` on
+  `PATH`, only flagged `required` when a configured connection actually
+  uses them), `dbctl tunnel list`, and the `dbctl init` wizard.
+
 ## [0.7.2] — 2026-08-04
 
 ### Added

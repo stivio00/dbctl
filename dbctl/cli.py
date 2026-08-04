@@ -1289,6 +1289,8 @@ def _doctor_deps(ctx, conns) -> None:
         ("kubectl", TunnelType.k8s, "install: https://kubernetes.io/docs/tasks/tools/"),
         ("aws", TunnelType.ssm, "install: `pip install awscli` or your OS package"),
         ("ssh", TunnelType.ssh, "install: OpenSSH client (openssh-clients / openssh-client)"),
+        ("az", TunnelType.azure, "install: https://learn.microsoft.com/cli/azure/install-azure-cli"),
+        ("gcloud", TunnelType.gcp, "install: https://cloud.google.com/sdk/docs/install"),
     ]
 
     dep_table = Table(title="optional dependencies", header_style="bold cyan")
@@ -1367,6 +1369,8 @@ def tunnel_cmd():
     - ssh:    Classic ssh -N -L port-forward through a bastion
     - k8s:    kubectl port-forward to a Service or Pod
     - direct: No tunnel — connect to upstream host:port
+    - azure:  Azure Bastion tunnel to a VM (az network bastion tunnel)
+    - gcp:    GCP IAP TCP tunnel to a Compute Engine instance (gcloud compute start-iap-tunnel)
 
     \b
     Subcommands:
@@ -1507,6 +1511,18 @@ def tunnel_list(ctx):
             if c.k8s.namespace:
                 info_parts.append(f"ns={c.k8s.namespace}")
             info_parts.append(f"port={c.k8s.remote_port}")
+        elif ttype == "azure":
+            assert c.azure
+            info_parts.append(f"bastion={c.azure.bastion_name}")
+            info_parts.append(f"target={c.azure.target_resource_id}")
+            info_parts.append(f"port={c.azure.remote_port}")
+        elif ttype == "gcp":
+            assert c.gcp
+            info_parts.append(f"instance={c.gcp.instance}")
+            info_parts.append(f"zone={c.gcp.zone}")
+            if c.gcp.project:
+                info_parts.append(f"project={c.gcp.project}")
+            info_parts.append(f"port={c.gcp.remote_port}")
         table.add_row(name, ttype, driver, ", ".join(info_parts))
 
     console.print(table)
