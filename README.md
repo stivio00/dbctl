@@ -305,6 +305,12 @@ DB password sources are mutually exclusive — pick **one** per connection:
 | `windows_sso: true` | mssql+pyodbc only: Windows Integrated Security (`Trusted_Connection=yes`). No username/password needed. |
 | `url: "…"`          | full SQLAlchemy URL (overrides all the above). Use for Azure AD, ODBC-specific kwargs, or any non-standard connection string. |
 
+Any of these — plus `username`, `database`, `driver`, or a tunnel field like
+`direct.host` — can instead be a `{{ssm:/param/path;property:key;profile:name}}`
+placeholder resolved against AWS SSM Parameter Store at connection time. See
+[`docs/connections.md`](docs/connections.md#ssm-references) for the full
+reference.
+
 Secret-typed **operation** parameters (`type: secret`) are redacted in the
 audit log regardless of which DB password source the connection uses.
 

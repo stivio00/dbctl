@@ -97,6 +97,61 @@ connections.yaml: 1 invalid connection skipped:
 The offending connection is simply absent from `dbctl connections list` until
 you fix it — the CLI never refuses to start because of one bad entry.
 
+## `{{ssm:...}}` references
+
+Any string field on a connection — `password`, `username`, `database`,
+`driver`, `url`, or a nested tunnel field like `ssm.remote_host` or
+`direct.host` — can be a placeholder that resolves against AWS SSM
+Parameter Store instead of a literal value:
+
+```
+{{ssm:<parameter-name>[;property:<json-key>][;profile:<aws-profile>]}}
+```
+
+| part | required | meaning |
+|------|----------|---------|
+| `<parameter-name>` | yes | full SSM parameter name/path, e.g. `/prod/db/password`. |
+| `property` | no | if the parameter value is a JSON object, extract only this key. Omit to use the whole raw value. |
+| `profile` | no | AWS CLI profile for the lookup. Omit to use the default credential chain (env vars, default profile, instance role). |
+
+```yaml
+connections:
+  prod-pg:
+    type: direct
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password: "{{ssm:/prod/db/credentials;property:password;profile:prod-admin}}"
+    direct:
+      host: "{{ssm:/prod/db/credentials;property:host;profile:prod-admin}}"
+```
+
+Given an SSM parameter `/prod/db/credentials` holding
+`{"username": "app_admin", "password": "s3cret", "host": "prod.rds.internal"}`,
+`{{ssm:/prod/db/credentials;property:password}}` resolves to `s3cret`.
+
+**When resolution happens.** References are resolved lazily, right before a
+connection is actually used to open a tunnel or build an engine (`dbctl
+<conn> health`, `dbctl tunnel open`, an operation, …) — never at load time.
+`dbctl connections list` / `dbctl connections show` never touch AWS and
+never print a resolved secret; they show the raw `{{ssm:...}}` placeholder
+as written in the YAML. Because resolution is per-connection and on-demand,
+an unreachable profile on one connection never breaks loading or using any
+other connection.
+
+**Resolution details:**
+- Parameters are always fetched `--with-decryption`, so `SecureString`
+  parameters work transparently; plain `String` parameters are unaffected.
+- If `property` is set but the parameter's value isn't valid JSON, or the
+  key is missing, resolution fails with an error naming the parameter and
+  property — never the (partial) value.
+- If the parameter doesn't exist or access is denied, the error names the
+  parameter but never attempts to print a value.
+- Resolution shells out to the `aws` CLI (same mechanism `ssm` tunnels
+  already use for bastion lookups), so no extra AWS SDK dependency is
+  required — just a working `aws` CLI on `PATH` and credentials for the
+  chosen profile.
+
 ## `ssm` block
 
 AWS SSM port-forwarding to a remote host (typically RDS) through an EC2
