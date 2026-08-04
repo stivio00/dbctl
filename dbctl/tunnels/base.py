@@ -56,11 +56,18 @@ def build_tunnel(conn: Connection, *, override_port: int | None = None) -> Tunne
     the local bind port even when the config says ``local_port: 0`` (auto).
     For ``direct`` tunnels the override replaces the upstream port (useful
     for pointing at a different port than the config declares).
+
+    Resolves any ``{{ssm:...}}`` placeholders on ``conn`` first (see
+    ``dbctl.refs``) — this is the point a connection is actually used, so
+    it's the right place for that lazy resolution to happen.
     """
+    from dbctl.refs import resolve_connection
     from dbctl.tunnels.direct import DirectTunnel as _Direct
     from dbctl.tunnels.k8s import K8sTunnel as _K8k
     from dbctl.tunnels.ssh import SshTunnel as _Ssh
     from dbctl.tunnels.ssm import SsmTunnel as _Ssm
+
+    conn = resolve_connection(conn)
 
     match conn.type.value:
         case "ssm":

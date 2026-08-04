@@ -5,6 +5,25 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-08-04
+
+### Added
+
+- **`{{ssm:...}}` connection references** — any string field on a
+  connection (`password`, `username`, `database`, `driver`, `url`, or a
+  nested tunnel field like `ssm.remote_host` / `direct.host`) can now be
+  a placeholder — `{{ssm:<parameter-name>[;property:<json-key>][;profile:<aws-profile>]}}`
+  — resolved against AWS SSM Parameter Store instead of a literal value.
+  `SecureString` parameters are fetched with decryption; `property`
+  extracts one key from a JSON-object parameter value (so several
+  credentials can share one parameter). Resolution is lazy — it runs via
+  `dbctl.refs.resolve_connection` right before a connection is actually
+  used to open a tunnel or build an engine, never at `connections.yaml`
+  load time and never from `dbctl connections list` / `show` — so
+  browsing the registry never makes an AWS call or risks echoing a
+  decrypted secret, and one unreachable profile can't break unrelated
+  connections. See `docs/connections.md` for the full reference.
+
 ## [0.7.1] — 2026-08-03
 
 ### Fixed

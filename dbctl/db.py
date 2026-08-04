@@ -102,7 +102,15 @@ def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Eng
     password injected — the URL is just ``driver:///path/to/file``. The
     tunnel's local bind is irrelevant for file-based DBs (the file is
     local), and injecting `host:port` makes SQLAlchemy reject the URL.
+
+    Resolves any ``{{ssm:...}}`` placeholders on ``conn`` first (see
+    ``dbctl.refs``) — this is the point a connection is actually used, so
+    it's the right place for that lazy resolution to happen.
     """
+    from dbctl.refs import resolve_connection
+
+    conn = resolve_connection(conn)
+
     driver = _driver_name(conn)
     _check_driver_available(driver)
 
