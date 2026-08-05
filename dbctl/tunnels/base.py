@@ -62,7 +62,9 @@ def build_tunnel(conn: Connection, *, override_port: int | None = None) -> Tunne
     it's the right place for that lazy resolution to happen.
     """
     from dbctl.refs import resolve_connection
+    from dbctl.tunnels.azure import AzureBastionTunnel as _Azure
     from dbctl.tunnels.direct import DirectTunnel as _Direct
+    from dbctl.tunnels.gcp import GcpIapTunnel as _Gcp
     from dbctl.tunnels.k8s import K8sTunnel as _K8k
     from dbctl.tunnels.ssh import SshTunnel as _Ssh
     from dbctl.tunnels.ssm import SsmTunnel as _Ssm
@@ -91,6 +93,16 @@ def build_tunnel(conn: Connection, *, override_port: int | None = None) -> Tunne
             if override_port is not None:
                 conn.direct = conn.direct.model_copy(update={"port": override_port})
             return _Direct(conn.direct)
+        case "azure":
+            assert conn.azure
+            if override_port is not None:
+                conn.azure = conn.azure.model_copy(update={"local_port": override_port})
+            return _Azure(conn.azure)
+        case "gcp":
+            assert conn.gcp
+            if override_port is not None:
+                conn.gcp = conn.gcp.model_copy(update={"local_port": override_port})
+            return _Gcp(conn.gcp)
         case _:  # pragma: no cover - exhaustive
             raise ValueError(f"unknown tunnel type {conn.type!r}")
 

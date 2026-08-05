@@ -38,7 +38,7 @@ overlap with a clear message.
 |-----------------|-------------------------------------------|----------|-------|
 | `description`   | string                                    | no       | shown in the dashboard and `dbctl connections list`. |
 | `aliases`       | list of strings                           | no       | alternates that resolve back to this connection (e.g. `prod` → `db1`). |
-| `type`          | `ssm` \| `ssh` \| `k8s` \| `direct`       | **yes**  | selects the tunnel implementation. |
+| `type`          | `ssm` \| `ssh` \| `k8s` \| `direct` \| `azure` \| `gcp` | **yes**  | selects the tunnel implementation. |
 | `driver`        | string                                    | **yes**  | SQLAlchemy URL scheme. Supported: `postgresql+psycopg`, `mysql+pymysql`, `mariadb+pymysql`, `mssql+pyodbc`, `oracle+oracledb`, `sqlite`, `duckdb`. Any other SQLAlchemy scheme works as long as its driver is importable. |
 | `database`      | string                                    | **yes**  | database / catalog name passed to SQLAlchemy. |
 | `username`      | string                                    | **yes** (unless `windows_sso`) | DB user. |
@@ -50,6 +50,8 @@ overlap with a clear message.
 | `ssh`           | [`SshTunnel`](#ssh-block)                 | yes if `type: ssh` | tunnel params. |
 | `k8s`           | [`K8sTunnel`](#k8s-block)                 | yes if `type: k8s` | tunnel params. |
 | `direct`        | [`DirectTunnel`](#direct-block)           | yes if `type: direct` | upstream params (no tunnel). |
+| `azure`         | [`AzureBastionTunnel`](#azure-block)      | yes if `type: azure` | tunnel params. |
+| `gcp`           | [`GcpIapTunnel`](#gcp-block)              | yes if `type: gcp` | tunnel params. |
 | `healthcheck`   | [`Healthcheck`](#healthcheck-block)      | no       | `SELECT 1` by default. |
 | `info`          | list of [`InfoQuery`](#info-query)        | no       | named introspection queries that `dbctl <conn> info <name>` can run. |
 | `safety`        | [`Safety`](#safety-block)                 | no       | gates DML. |
@@ -255,6 +257,54 @@ the database without a bastion.
 > `mssql+pyodbc://sa:pwd@127.0.0.1:1434/app`; if pyodbc can't resolve the
 > driver, install `ODBC Driver 18 for SQL Server` (or similar) on your
 > system first.
+
+## `azure` block
+
+Azure Bastion tunnel to a VM via `az network bastion tunnel`. The `az` CLI
+on your `PATH` is invoked as a subprocess; your existing `az login` session
+is used directly. Requires an Azure Bastion resource on the **Standard**
+SKU (the Basic SKU doesn't support the native-client tunnel command) in the
+target VM's VNet.
+
+```yaml
+azure:
+  resource_group: prod-rg
+  bastion_name: prod-bastion
+  target_resource_id: /subscriptions/xxxx/resourceGroups/prod-rg/providers/Microsoft.Compute/virtualMachines/prod-db-vm
+  subscription: prod                          # optional; az CLI --subscription (name or id)
+  remote_port: 5432                           # port on the target VM to forward
+  local_port: 0                               # 0 = dbctl picks a free local port
+```
+
+- `target_resource_id` is the full ARM resource id of the target VM (the
+  bastion's target, not the bastion itself).
+- `local_port: 0` makes `dbctl` discover a free port itself before invoking
+  `az`, the same as the `ssm` / `ssh` / `k8s` tunnels.
+- The subprocess is terminated cleanly on exit; an `atexit` fallback covers
+  hard crashes.
+
+## `gcp` block
+
+GCP Identity-Aware Proxy (IAP) TCP tunnel to a Compute Engine instance via
+`gcloud compute start-iap-tunnel`. The `gcloud` CLI on your `PATH` is
+invoked as a subprocess; your existing `gcloud auth login` session is used
+directly. Requires IAP TCP forwarding enabled for the target instance's
+network and the caller to hold the `roles/iap.tunnelResourceAccessor` IAM
+role (directly or via a broader role).
+
+```yaml
+gcp:
+  project: my-gcp-project                     # optional; blank = gcloud's active project
+  zone: europe-west1-b
+  instance: prod-db-vm
+  remote_port: 5432                           # port on the instance to forward
+  local_port: 0                               # 0 = dbctl picks a free local port
+```
+
+- `local_port: 0` makes `dbctl` discover a free port itself before invoking
+  `gcloud`, the same as the other tunnel types.
+- The subprocess is terminated cleanly on exit; an `atexit` fallback covers
+  hard crashes.
 
 ## `healthcheck` block
 
@@ -473,6 +523,57 @@ connections:
         query: "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10"
       - name: active_conns
         query: "SELECT count(*) FROM pg_stat_activity"
+    safety:
+      confirm: true
+      read_only: false
+      allowed_operations: []
+```
+
+### Azure Postgres VM via Azure Bastion
+
+```yaml
+connections:
+  azure-prod-pg:
+    description: "Production Postgres VM reached via Azure Bastion"
+    aliases: [prod]
+    type: azure
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_AZURE_PROD_PG_PASSWORD
+    azure:
+      resource_group: prod-rg
+      bastion_name: prod-bastion
+      target_resource_id: /subscriptions/xxxx/resourceGroups/prod-rg/providers/Microsoft.Compute/virtualMachines/prod-db-vm
+      subscription: prod
+      remote_port: 5432
+      local_port: 0
+    healthcheck: { query: "SELECT 1" }
+    safety:
+      confirm: true
+      read_only: false
+      allowed_operations: []
+```
+
+### GCP Cloud SQL-adjacent VM via IAP tunnel
+
+```yaml
+connections:
+  gcp-prod-pg:
+    description: "Production Postgres VM reached via GCP IAP tunnel"
+    aliases: [prod]
+    type: gcp
+    driver: postgresql+psycopg
+    database: app
+    username: app_admin
+    password_env: DBCTL_GCP_PROD_PG_PASSWORD
+    gcp:
+      project: my-gcp-project
+      zone: europe-west1-b
+      instance: prod-db-vm
+      remote_port: 5432
+      local_port: 0
+    healthcheck: { query: "SELECT 1" }
     safety:
       confirm: true
       read_only: false

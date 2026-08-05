@@ -12,8 +12,10 @@ import yaml
 from rich.console import Console
 
 from dbctl.config import (
+    AzureBastionTunnel,
     Connection,
     DirectTunnel,
+    GcpIapTunnel,
     Healthcheck,
     K8sTunnel,
     SshTunnel,
@@ -44,7 +46,7 @@ def run_wizard(*, profile: str | None) -> None:
         default=False,
     )
 
-    ssm = ssh = k8s = direct = None
+    ssm = ssh = k8s = direct = azure = gcp = None
     url = None
     driver = None
     database = None
@@ -113,6 +115,10 @@ def run_wizard(*, profile: str | None) -> None:
             ssh = _ask_ssh()
         elif type_ == "k8s":
             k8s = _ask_k8s()
+        elif type_ == "azure":
+            azure = _ask_azure()
+        elif type_ == "gcp":
+            gcp = _ask_gcp()
         else:
             host = click.prompt("host", default="localhost")
             port = click.prompt("port", type=int, default=_default_port(driver or ""))
@@ -138,6 +144,8 @@ def run_wizard(*, profile: str | None) -> None:
         ssh=ssh,
         k8s=k8s,
         direct=direct,
+        azure=azure,
+        gcp=gcp,
         healthcheck=healthcheck,
         safety={"confirm": confirm, "read_only": read_only},
     )
@@ -210,6 +218,38 @@ def _ask_k8s() -> K8sTunnel:
         context=context,
         namespace=namespace or None,
         target=target,
+        remote_port=remote_port,
+        local_port=local_port,
+    )
+
+
+def _ask_azure() -> AzureBastionTunnel:
+    resource_group = click.prompt("resource group", type=str)
+    bastion_name = click.prompt("bastion name", type=str)
+    target_resource_id = click.prompt("target VM resource id (full ARM resource id)", type=str)
+    subscription = click.prompt("azure subscription (name or id, optional)", default="")
+    remote_port = click.prompt("remote port (on the target VM)", type=int, default=5432)
+    local_port = click.prompt("local port (0 = auto)", type=int, default=0)
+    return AzureBastionTunnel(
+        resource_group=resource_group,
+        bastion_name=bastion_name,
+        target_resource_id=target_resource_id,
+        subscription=subscription or None,
+        remote_port=remote_port,
+        local_port=local_port,
+    )
+
+
+def _ask_gcp() -> GcpIapTunnel:
+    project = click.prompt("gcp project (optional; blank = gcloud's active project)", default="")
+    zone = click.prompt("zone", type=str)
+    instance = click.prompt("instance name", type=str)
+    remote_port = click.prompt("remote port (on the instance)", type=int, default=5432)
+    local_port = click.prompt("local port (0 = auto)", type=int, default=0)
+    return GcpIapTunnel(
+        project=project or None,
+        zone=zone,
+        instance=instance,
         remote_port=remote_port,
         local_port=local_port,
     )
