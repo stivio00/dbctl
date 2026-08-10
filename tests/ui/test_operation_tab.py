@@ -98,3 +98,25 @@ async def test_operation_tab_respects_read_only_safety(stub_registry, add_user_o
         row = list(table.rows.keys())[0]
         cell = table.get_cell(row, next(iter(table.columns.keys())))
         assert "read-only" in cell
+
+
+async def test_operation_tab_survives_connection_removed_from_registry(stub_registry, add_user_op):
+    """A tab bound to a connection that's since been removed must show a
+    message, not crash with a KeyError from the now-empty SessionManager."""
+    app = DbctlApp()
+    app.operations["add-user"] = add_user_op
+    async with app.run_test() as pilot:
+        app.sessions.connect("sqlite-test")
+        app.open_operation_tab("sqlite-test", "add-user")
+        await pilot.pause()
+
+        app.sessions.reload({})  # simulates the connection disappearing
+
+        app.action_run_tab()  # must not raise
+        await pilot.pause()
+
+        pane = app.query_one(OperationPane)
+        table = pane.query_one("#results-table", DataTable)
+        row = list(table.rows.keys())[0]
+        cell = table.get_cell(row, next(iter(table.columns.keys())))
+        assert "no longer exists" in cell

@@ -71,3 +71,25 @@ async def test_sql_tab_without_connect_shows_hint(stub_registry):
         row = list(table.rows.keys())[0]
         cell = table.get_cell(row, list(table.columns.keys())[0])
         assert "not connected" in cell
+
+
+async def test_sql_tab_survives_connection_removed_from_registry(stub_registry):
+    """A tab bound to a connection that's since been removed (e.g. via the
+    tree's 'e' edit-connections.yaml action) must show a message, not crash
+    with a KeyError from the now-empty SessionManager."""
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        app.sessions.connect("sqlite-test")
+        app.open_sql_tab("sqlite-test")
+        await pilot.pause()
+
+        app.sessions.reload({})  # simulates the connection disappearing
+
+        app.action_run_tab()  # must not raise
+        await pilot.pause()
+
+        pane = app.query_one(SqlEditorPane)
+        table = pane.query_one("#results-table", DataTable)
+        row = list(table.rows.keys())[0]
+        cell = table.get_cell(row, list(table.columns.keys())[0])
+        assert "no longer exists" in cell

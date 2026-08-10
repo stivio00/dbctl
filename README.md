@@ -324,37 +324,29 @@ audit log regardless of which DB password source the connection uses.
 
 A [Textual](https://textual.textualize.io/) TUI for interactive work, on top
 of the same connections/operations/tunnels/audit-log stack as the CLI - not
-a separate code path with its own rules.
+a separate code path with its own rules. `textual` is a base dependency, so
+no separate install step.
 
 ```bash
 dbctl ui
 ```
 
-- **Left pane**: a connection tree, lazily loaded so nothing is queried until
-  you expand it. `c`/`d`/`t` connect / disconnect / test-tunnel the
-  highlighted connection; `a`/`e` open `connections.yaml` in `$EDITOR`. `m`
-  toggles between two browsing depths:
-  - **simple**: `connection → table → column`
-  - **normal**: `connection → schema → Tables/Views → table/view → Columns/Indexes`
+- **Left pane**: a connection tree that doubles as a lazily-loaded schema
+  browser (`m` toggles a simple `connection → table → column` view and a
+  fuller `connection → schema → Tables/Views → table/view →
+  Columns/Indexes` view). Expanding a connection connects it if needed;
+  activating (Enter) a table/view opens a SQL tab pre-filled with a
+  dialect-correct preview query using the real table name.
+- **Right pane**: a tabbed workspace of SQL editor / operation-launcher
+  tabs (`Ctrl+N` new tab, `Ctrl+O` searchable operation launcher, `Ctrl+W`
+  close, `Ctrl+R` run), each with an independently resizable results table
+  below it.
+- Every run still respects `safety.read_only` / `safety.confirm` /
+  `allowed_operations` and is appended to `~/.dbctl/history.jsonl`, exactly
+  like a CLI-driven run.
 
-  Expanding a connection node connects it first if needed. Activating
-  (Enter) a table or view opens a SQL tab pre-filled with a dialect-correct
-  preview query using the real table name - `LIMIT` for
-  postgres/mysql/sqlite/duckdb, `TOP` for SQL Server, `FETCH FIRST … ROWS
-  ONLY` for Oracle - with the table (and schema) quoted per-dialect
-  (`"Name"`, `[Name]`, or `` `Name` ``) whenever it isn't a plain lowercase
-  identifier.
-- **Right pane**: a tabbed workspace. Each tab is either a SQL editor (syntax
-  highlighted) bound to one connection, or an operation launcher (a form
-  built from a declared operation's parameters). `Ctrl+N` opens a new tab,
-  `Ctrl+W` closes the active one, `Ctrl+R` runs it - a results table appears
-  below the editor/form.
-- **Resize the split**: `Ctrl+Left`/`Ctrl+Right` narrow/widen the connection
-  tree in steps, or drag the vertical bar between the two panes with the
-  mouse (terminal permitting).
-- Every run (SQL or operation) still respects `safety.read_only` /
-  `safety.confirm` / `allowed_operations` and is appended to
-  `~/.dbctl/history.jsonl`, exactly like a CLI-driven run.
+See [`docs/tui.md`](docs/tui.md) for the full keybinding reference and
+per-dialect SQL details (row-limit clause, identifier quoting).
 
 ## Shell completion
 
@@ -379,6 +371,7 @@ dbctl/
 ├── docs/
 │   ├── connections.md      # connections.yaml reference
 │   ├── operations.md       # operations.yaml reference
+│   ├── tui.md              # dbctl ui reference (keybindings, dialect SQL)
 │   └── DESIGN.md           # architecture and design decisions
 └── dbctl/
     ├── cli.py              # dynamic groups + per-op Click commands

@@ -54,7 +54,10 @@ class SqlEditorPane(RunnableTab):
 
     def run_tab(self) -> None:
         table = self.query_one("#results-table", DataTable)
-        session = self._sessions.get(self.conn_name)
+        session = self._sessions.get_or_none(self.conn_name)
+        if session is None:
+            results.show_message(table, f"connection {self.conn_name!r} no longer exists (removed?)")
+            return
         if not session.connected:
             results.show_message(table, f"{self.conn_name} is not connected (press 'c' in the tree)")
             return

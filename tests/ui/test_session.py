@@ -65,3 +65,10 @@ def test_disconnect_all(sqlite_connection):
     manager.disconnect_all()
     assert not manager.get("a").connected
     assert not manager.get("b").connected
+
+
+def test_get_or_none_for_a_removed_connection(sqlite_connection):
+    manager = SessionManager({"sqlite-test": sqlite_connection})
+    manager.reload({})
+    assert manager.get_or_none("sqlite-test") is None
+    assert manager.get_or_none("sqlite-test") is None  # idempotent, no KeyError

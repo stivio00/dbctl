@@ -51,6 +51,12 @@ class SessionManager:
     def get(self, name: str) -> ConnectionSession:
         return self._sessions[name]
 
+    def get_or_none(self, name: str) -> ConnectionSession | None:
+        """Like `get`, but ``None`` instead of `KeyError` for a connection
+        that no longer exists - e.g. an already-open tab whose connection
+        was removed from connections.yaml via the tree's edit action."""
+        return self._sessions.get(name)
+
     def connect(self, name: str) -> ConnectionSession:
         session = self._sessions[name]
         if session.connected:
