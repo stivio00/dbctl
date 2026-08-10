@@ -37,11 +37,13 @@ leaving the terminal.
 | DML is one `Ctrl-Enter` away                        | DML is **dry-run by default** until `--apply`; `--yes` skips the prompt |
 | No cross-DB diff                                     | `dbctl diff user-count prod-tenant1 int-tenant1`        |
 
-`dbctl` is **not** a schema browser or a query playground — it deliberately
-has no ad-hoc query command. Declaring operations in YAML keeps "what can be
-run against this DB" discoverable from a versioned file instead of buried in
-your shell history. (For ad-hoc exploration open the tunnel with
-`dbctl tunnel open <conn>` and point your favourite client at the local bind.)
+The declarative CLI above is still the primary interface: declaring
+operations in YAML keeps "what can be run against this DB" discoverable from
+a versioned file instead of buried in your shell history. For ad-hoc
+exploration, the optional `dbctl ui` (see below) gives you a schema browser
+and a SQL editor without leaving `dbctl`'s tunnel/safety/audit model - or
+open the tunnel with `dbctl tunnel open <conn>` and point your favourite
+client at the local bind.
 
 ### How it reaches a database
 
@@ -318,6 +320,36 @@ reference.
 Secret-typed **operation** parameters (`type: secret`) are redacted in the
 audit log regardless of which DB password source the connection uses.
 
+## Interactive UI (`dbctl ui`)
+
+An optional [Textual](https://textual.textualize.io/) TUI for interactive
+work, on top of the same connections/operations/tunnels/audit-log stack as
+the CLI - not a separate code path with its own rules.
+
+```bash
+uv pip install "dbctl[ui]"   # or: pip install "dbctl[ui]" - textual is not a base dependency
+dbctl ui
+```
+
+- **Left pane**: a connection tree, lazily loaded so nothing is queried until
+  you expand it. `c`/`d`/`t` connect / disconnect / test-tunnel the
+  highlighted connection; `a`/`e` open `connections.yaml` in `$EDITOR`. `m`
+  toggles between two browsing depths:
+  - **simple**: `connection → table → column`
+  - **normal**: `connection → schema → Tables/Views → table/view → Columns/Indexes`
+
+  Expanding a connection node connects it first if needed. Activating
+  (Enter) a table or view opens a SQL tab pre-filled with
+  `SELECT * FROM <table> LIMIT 100;` using the real table name.
+- **Right pane**: a tabbed workspace. Each tab is either a SQL editor (syntax
+  highlighted) bound to one connection, or an operation launcher (a form
+  built from a declared operation's parameters). `Ctrl+N` opens a new tab,
+  `Ctrl+W` closes the active one, `Ctrl+R` runs it - a results table appears
+  below the editor/form.
+- Every run (SQL or operation) still respects `safety.read_only` /
+  `safety.confirm` / `allowed_operations` and is appended to
+  `~/.dbctl/history.jsonl`, exactly like a CLI-driven run.
+
 ## Shell completion
 
 ```bash
@@ -354,7 +386,17 @@ dbctl/
     ├── reports.py          # rich tables / json / csv / yaml + diff + copy/sync/validate rendering
     ├── audit.py            # history.jsonl
     ├── runtime.py          # opened_conn() ctx-mgr (tunnel+engine+healthcheck)
-    └── init.py             # dbctl init wizard
+    ├── init.py             # dbctl init wizard
+    └── ui/                 # optional Textual TUI (`dbctl ui`, needs dbctl[ui])
+        ├── app.py          # DbctlApp: connection tree + tabbed workspace
+        ├── session.py      # per-connection tunnel+engine kept open across tab-runs
+        ├── connection_tree.py  # lazy schema browser (simple/normal view modes)
+        ├── schema.py       # sqlalchemy.inspect() wrapper for the tree
+        ├── editor_tab.py   # SQL editor tab
+        ├── operation_tab.py    # operation-launcher tab
+        ├── screens.py      # confirm / new-tab modal screens
+        ├── results.py      # DataTable rendering helpers
+        └── registry.py     # tolerant connections/operations loading
 ```
 
 ## Development
@@ -363,7 +405,7 @@ dbctl/
 uv sync --extra dev
 make help            # list all Makefile targets
 make check           # lint + unit tests (the pre-commit gate)
-make test            # unit tests (~80 tests, in-memory SQLite, no docker)
+make test            # unit tests (~200 tests, sqlite-backed, no docker)
 make typecheck       # mypy strict (pre-existing debt; non-blocking)
 make smoke           # docker compose up + dbctl doctor against the fleet
 make build           # wheel + sdist via uv

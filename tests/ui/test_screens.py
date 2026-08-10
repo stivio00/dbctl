@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("textual")
+
+from textual.widgets import RadioSet, Select, TabbedContent, TabPane  # noqa: E402
+
+from dbctl.config import Operation  # noqa: E402
+from dbctl.ui.app import DbctlApp  # noqa: E402
+from dbctl.ui.editor_tab import SqlEditorPane  # noqa: E402
+from dbctl.ui.screens import NewTabScreen  # noqa: E402
+
+
+@pytest.fixture()
+def op(stub_registry):
+    return Operation.model_validate({"scope": "single", "mode": "fetch", "sql": "SELECT 1", "parameters": []})
+
+
+async def test_new_tab_flow_opens_sql_tab_by_default(stub_registry):
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        app.action_new_tab()
+        await pilot.pause()
+        assert isinstance(app.screen, NewTabScreen)
+
+        app.screen.query_one("#new-tab-connection", Select).value = "sqlite-test"
+        await pilot.pause()
+        await pilot.click("#new-tab-create")
+        await pilot.pause()
+
+        tabbed = app.query_one(TabbedContent)
+        panes = tabbed.query(TabPane)
+        assert len(panes) == 1
+        assert panes.first().get_child_by_type(SqlEditorPane) is not None
+
+
+async def test_new_tab_flow_opens_operation_tab(stub_registry, op):
+    app = DbctlApp()
+    app.operations["op1"] = op
+    async with app.run_test() as pilot:
+        app.action_new_tab()
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, NewTabScreen)
+        screen.query_one("#new-tab-connection", Select).value = "sqlite-test"
+        screen.query_one(RadioSet).action_toggle_button()  # no-op guard; explicit press below
+        # Press the "Operation" radio button directly.
+        from textual.widgets import RadioButton
+
+        screen.query_one("#kind-op", RadioButton).value = True
+        screen.query_one("#new-tab-operation", Select).value = "op1"
+        await pilot.pause()
+        await pilot.click("#new-tab-create")
+        await pilot.pause()
+
+        tabbed = app.query_one(TabbedContent)
+        assert len(tabbed.query(TabPane)) == 1
+
+
+async def test_new_tab_cancel_opens_no_tab(stub_registry):
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        app.action_new_tab()
+        await pilot.pause()
+        await pilot.click("#new-tab-cancel")
+        await pilot.pause()
+
+        tabbed = app.query_one(TabbedContent)
+        assert len(tabbed.query(TabPane)) == 0
+
+
+async def test_new_tab_with_no_connections_notifies_instead_of_opening_modal(monkeypatch):
+    monkeypatch.setattr("dbctl.ui.registry.load_connections", lambda profile=None: {})
+    monkeypatch.setattr("dbctl.ui.registry.load_operations", lambda profile=None: {})
+    app = DbctlApp()
+    async with app.run_test():
+        app.action_new_tab()
+        assert not isinstance(app.screen, NewTabScreen)
