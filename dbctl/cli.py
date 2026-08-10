@@ -1020,7 +1020,7 @@ def _aliases(conns):
 
 def _root_list(ctx: click.Context) -> list[str]:
     conns, ops = registries(ctx)
-    static = ["connections", "operations", "status", "doctor", "init", "history", "tunnel"]
+    static = ["connections", "operations", "status", "doctor", "init", "history", "tunnel", "ui"]
     # multi-op operation-first top-level commands + deprecated verb-first groups
     multi_ops = {n for n, o in ops.items() if o.scope.value == "multi"}
     multi_modes = {o.mode.value for o in ops.values() if o.scope.value == "multi"}
@@ -1039,6 +1039,7 @@ def _root_get(ctx: click.Context, name: str):
         "init": init_cmd,
         "history": history_cmd,
         "tunnel": tunnel_cmd,
+        "ui": ui_cmd,
     }
     if name in static:
         return static[name]
@@ -1327,6 +1328,15 @@ def init_cmd(ctx):
     from dbctl.init import run_wizard
 
     run_wizard(profile=ctx.obj.get("profile"))
+
+
+@click.command("ui")
+@click.pass_context
+def ui_cmd(ctx):
+    """Launch the interactive TUI: connection tree + tabbed SQL editor / operations."""
+    from dbctl.ui.app import DbctlApp
+
+    DbctlApp(profile=ctx.obj.get("profile")).run()
 
 
 @main.group("history")

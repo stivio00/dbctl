@@ -1086,7 +1086,7 @@ def test_connection_url_mode_build_engine_uses_url():
     from unittest.mock import MagicMock
 
     from dbctl.config import Connection
-    from dbctl.db import _driver_name, build_engine
+    from dbctl.db import build_engine, driver_name
 
     conn = Connection.model_validate(
         {
@@ -1107,8 +1107,8 @@ def test_connection_url_mode_build_engine_uses_url():
     assert "dummy.db" in str(engine.url)
     assert "127.0.0.1" not in str(engine.url)
     assert "9999" not in str(engine.url)
-    # _driver_name extracts the scheme from the URL when conn.driver is None
-    assert _driver_name(conn) == "sqlite"
+    # driver_name extracts the scheme from the URL when conn.driver is None
+    assert driver_name(conn) == "sqlite"
 
 
 def test_connection_individual_mode_build_engine_injects_tunnel_bind():

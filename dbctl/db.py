@@ -60,7 +60,7 @@ def resolve_password(conn: Connection) -> str | None:
     raise DBError("no password source configured")
 
 
-def _driver_name(conn: Connection) -> str:
+def driver_name(conn: Connection) -> str:
     """Return the SQLAlchemy driver scheme for this connection.
 
     When the user provides a full ``url:`` string, the driver is the
@@ -79,7 +79,7 @@ def _driver_name(conn: Connection) -> str:
 def _connect_args(conn: Connection, timeout: float) -> dict:
     """Driver-specific connect-time knobs (mainly connect_timeout)."""
     args: dict = {}
-    driver = _driver_name(conn)
+    driver = driver_name(conn)
     if driver.startswith(("postgresql", "mysql", "mariadb", "oracle")):
         args["connect_timeout"] = int(max(1, timeout))
     # sqlite + duckdb are file-based — no connect_timeout; SQLAlchemy
@@ -111,7 +111,7 @@ def build_engine(conn: Connection, tunnel: Tunnel, *, echo: bool = False) -> Eng
 
     conn = resolve_connection(conn)
 
-    driver = _driver_name(conn)
+    driver = driver_name(conn)
     _check_driver_available(driver)
 
     from sqlalchemy import URL, make_url
@@ -264,4 +264,12 @@ def fmt_db_error(e: BaseException) -> str:
     return msg
 
 
-__all__ = ["build_engine", "resolve_password", "healthcheck", "DBError", "fmt_db_error", "text"]
+__all__ = [
+    "build_engine",
+    "resolve_password",
+    "healthcheck",
+    "DBError",
+    "fmt_db_error",
+    "driver_name",
+    "text",
+]

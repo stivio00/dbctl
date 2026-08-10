@@ -37,11 +37,13 @@ leaving the terminal.
 | DML is one `Ctrl-Enter` away                        | DML is **dry-run by default** until `--apply`; `--yes` skips the prompt |
 | No cross-DB diff                                     | `dbctl diff user-count prod-tenant1 int-tenant1`        |
 
-`dbctl` is **not** a schema browser or a query playground — it deliberately
-has no ad-hoc query command. Declaring operations in YAML keeps "what can be
-run against this DB" discoverable from a versioned file instead of buried in
-your shell history. (For ad-hoc exploration open the tunnel with
-`dbctl tunnel open <conn>` and point your favourite client at the local bind.)
+The declarative CLI above is still the primary interface: declaring
+operations in YAML keeps "what can be run against this DB" discoverable from
+a versioned file instead of buried in your shell history. For ad-hoc
+exploration, `dbctl ui` (see below) gives you a schema browser and a SQL
+editor without leaving `dbctl`'s tunnel/safety/audit model - or open the
+tunnel with `dbctl tunnel open <conn>` and point your favourite client at
+the local bind.
 
 ### How it reaches a database
 
@@ -318,6 +320,41 @@ reference.
 Secret-typed **operation** parameters (`type: secret`) are redacted in the
 audit log regardless of which DB password source the connection uses.
 
+## Interactive UI (`dbctl ui`)
+
+A [Textual](https://textual.textualize.io/) TUI for interactive work, on top
+of the same connections/operations/tunnels/audit-log stack as the CLI - not
+a separate code path with its own rules. `textual` is a base dependency, so
+no separate install step.
+
+```bash
+dbctl ui
+```
+
+- **Left pane**: a connection tree that doubles as a lazily-loaded schema
+  browser (`m` toggles a simple `connection → table → column` view and a
+  fuller `connection → schema → Tables/Views → table/view →
+  Columns/Indexes` view). Expanding a connection connects it if needed;
+  activating (Enter) a table/view opens a SQL tab pre-filled with a
+  dialect-correct preview query using the real table name. `g` toggles a
+  grouped view that treats `-` as a path separator (`in-gateway-ifp-dev`
+  nests under `in-gateway` → `ifp`) - handy once a fleet has more than a
+  handful of connections.
+- **Right pane**: a tabbed workspace of SQL editor / operation-launcher
+  tabs (`Ctrl+N` new tab, `Ctrl+O` searchable operation launcher, `Ctrl+W`
+  close, `Ctrl+R` run), each with an independently resizable results table
+  below it and a status line (row count / rows affected + duration) after
+  each run.
+- Connecting, disconnecting, testing a tunnel, and every SQL/operation run
+  happen on a background thread with a loading indicator, so the UI stays
+  responsive instead of freezing while a tunnel spins up or a query runs.
+- Every run still respects `safety.read_only` / `safety.confirm` /
+  `allowed_operations` and is appended to `~/.dbctl/history.jsonl`, exactly
+  like a CLI-driven run.
+
+See [`docs/tui.md`](docs/tui.md) for the full keybinding reference and
+per-dialect SQL details (row-limit clause, identifier quoting).
+
 ## Shell completion
 
 ```bash
@@ -341,6 +378,7 @@ dbctl/
 ├── docs/
 │   ├── connections.md      # connections.yaml reference
 │   ├── operations.md       # operations.yaml reference
+│   ├── tui.md              # dbctl ui reference (keybindings, dialect SQL)
 │   └── DESIGN.md           # architecture and design decisions
 └── dbctl/
     ├── cli.py              # dynamic groups + per-op Click commands
@@ -354,7 +392,21 @@ dbctl/
     ├── reports.py          # rich tables / json / csv / yaml + diff + copy/sync/validate rendering
     ├── audit.py            # history.jsonl
     ├── runtime.py          # opened_conn() ctx-mgr (tunnel+engine+healthcheck)
-    └── init.py             # dbctl init wizard
+    ├── init.py             # dbctl init wizard
+    └── ui/                 # Textual TUI (`dbctl ui`)
+        ├── app.py          # DbctlApp: connection tree + tabbed workspace
+        ├── session.py      # per-connection tunnel+engine kept open across tab-runs
+        ├── connection_tree.py  # lazy schema browser (simple/normal + flat/grouped views)
+        ├── grouping.py     # "-" as a path separator -> compressed connection-name trie
+        ├── schema.py       # sqlalchemy.inspect() wrapper for the tree
+        ├── editor_tab.py   # SQL editor tab
+        ├── operation_tab.py    # operation-launcher tab
+        ├── sql_templates.py    # dialect-aware default SELECT + identifier quoting
+        ├── screens.py      # confirm / new-tab / operation-launcher modal screens
+        ├── splitter.py     # draggable pane-resize bars
+        ├── tabs.py         # shared tab base: resize, toolbar, status bar, loading indicator
+        ├── results.py      # DataTable rendering helpers
+        └── registry.py     # tolerant connections/operations loading
 ```
 
 ## Development
@@ -363,7 +415,7 @@ dbctl/
 uv sync --extra dev
 make help            # list all Makefile targets
 make check           # lint + unit tests (the pre-commit gate)
-make test            # unit tests (~80 tests, in-memory SQLite, no docker)
+make test            # unit tests (~270 tests, sqlite-backed, no docker)
 make typecheck       # mypy strict (pre-existing debt; non-blocking)
 make smoke           # docker compose up + dbctl doctor against the fleet
 make build           # wheel + sdist via uv
