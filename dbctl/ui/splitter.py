@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from textual import events
+from textual.app import RenderResult
 from textual.widget import Widget
 
 if TYPE_CHECKING:
@@ -33,6 +34,11 @@ class VerticalSplitter(Widget):
         self._dragging = False
         self._drag_start_x = 0.0
         self._start_width = 0
+
+    def render(self) -> RenderResult:
+        # Widget's default render() falls back to showing the widget's own
+        # CSS identifier as text - blank this out, it's a 1-column bar.
+        return ""
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         self._dragging = True
