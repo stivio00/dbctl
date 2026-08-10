@@ -5,6 +5,65 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] — 2026-08-10
+
+### Added
+
+- **`dbctl execute`** — run ad-hoc SQL without declaring an operation in
+  `operations.yaml`. The new top-level verb takes a connection name *or* a
+  full SQLAlchemy URL, the SQL string as a single positional argument, and
+  the short option set the existing operation dispatch uses:
+
+  ```bash
+  dbctl execute -c pg -o json "SELECT * FROM users"
+  dbctl execute -c pg --show-sql --apply "DELETE FROM users WHERE name='bob'"
+  dbctl execute -c "postgresql+psycopg://u:p@host:5432/db" -o csv "SELECT 1"
+  dbctl execute -c pg -o yaml "SELECT * FROM users LIMIT 10"
+  ```
+
+  Behaviour:
+
+  - **`-c` / `--connection`** accepts a registered connection name /
+    alias (resolved via `connections.yaml`) **or** a full SQLAlchemy URL
+    (detected by the presence of `://`). Inline URLs build a transient
+    `direct` Connection so the SSM/SSH password-source plumbing, native-lib
+    install hints, and `connect_args` (connect-timeout, Windows SSO) all
+    apply uniformly.
+  - **`-o` / `--output`** chooses `table` (default) / `json` / `csv` /
+    `yaml` for SELECT-shaped results, exactly like declared `fetch` ops.
+  - The SQL is auto-classified by its first verb: `SELECT` / `WITH` /
+    `SHOW` / `EXPLAIN` / `DESCRIBE` / `PRAGMA` / `VALUES` / `TABLE` runs
+    as a query (rendered via `--output`); anything else runs as DML
+    (INSERT / UPDATE / DELETE / CREATE / DROP / ALTER / ...) inside
+    `engine.begin()`.
+  - DML respects the connection's `safety.confirm` (dry-run-by-default
+    unless `--apply`), `safety.read_only` (DML blocked with exit 6), and
+    prompts before commit unless `--yes` / `-y` is passed — exactly the
+    same gate as a declared `mode: execute` operation. Inline URLs
+    default to `safety.confirm: true`.
+  - DDL that returns `rowcount = -1` (CREATE TABLE, DROP, ...) is rendered
+    as `OK in <ms>ms` instead of the misleading `OK -1 row(s) affected`.
+    Real INSERT/UPDATE/DELETE row counts are still reported.
+  - Every run is appended to `~/.dbctl/history.jsonl` as
+    `operation="execute"` with the SQL (truncated to 500 chars) in the
+    `params.sql` field, so it shows up under `dbctl history list`. The
+    audit `connection` field is the canonical connection name, or the
+    literal `<inline>` token for inline URL runs.
+  - `--show-sql` prints the resolved SQL before executing; `--` separates
+    options from positional SQL that begins with a dash (Click would
+    otherwise treat the leading dash as an unknown option).
+  - The new verb is registered as a top-level static command alongside
+    `connections` / `operations` / `doctor` / `init` / `history` /
+    `tunnel` / `ui`, so shell completion picks it up.
+
+  This closes the long-standing "no ad-hoc query command" gap without
+  weakening the declarative operation registry: the declared
+  `operations.yaml` model remains the recommended way to make "what can
+  be run against this DB" discoverable from a versioned file, while
+  `execute` covers the exploratory / break-glass path the TUI already
+  serves — both share the same tunnel / safety / audit plumbing so every
+  run is still logged and policy-checked.
+
 ## [0.7.4] — 2026-08-10
 
 ### Added

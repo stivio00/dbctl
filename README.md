@@ -86,9 +86,9 @@ the same params.
 
 ## Why "the operations are declarative"
 
-There is **no ad-hoc query command**. To run SQL through `dbctl` you must
-declare an operation in `operations.yaml` first — its name, its parameters
-(with types, descriptions, positional vs keyword), its SQL, and its mode
+The recommended path for permanent, repeatable work is to declare an
+operation in `operations.yaml` first — its name, its parameters (with
+types, descriptions, positional vs keyword), its SQL, and its mode
 (`execute` / `fetch` / `fetch_one` / `script` / `upsert` for single-DB;
 `diff` / `compare` / `copy` / `sync` / `validate` / `replay` for multi-DB).
 The CLI then synthesises a Click subcommand per operation, so:
@@ -99,7 +99,18 @@ The CLI then synthesises a Click subcommand per operation, so:
 - the audit log is queryable by operation name (`dbctl history list`).
 
 This keeps "what can be run against this DB" discoverable from a versioned
-config file, instead of buried in shell history.
+config file, instead of buried in shell history. For exploratory / break-glass
+SQL — the path the TUI serves — `dbctl execute` (added in v0.7.6) runs
+ad-hoc SQL through the same tunnel / safety / audit plumbing without
+requiring a declared operation:
+
+```bash
+dbctl execute -c pg -o json "SELECT * FROM users"
+dbctl execute -c "postgresql+psycopg://u:p@host:5432/db" -o csv "SELECT 1"
+dbctl execute -c pg --show-sql --apply "DELETE FROM users WHERE name='bob'"
+```
+
+See [`docs/execute.md`](docs/execute.md) for the full reference.
 
 ## Install (uv)
 
@@ -151,6 +162,12 @@ dbctl pg list-users 10
 dbctl pg add-user stephen 12 --show-sql        # dry-run (prints SQL)
 dbctl pg add-user stephen 12 --apply --yes     # commit (no prompt)
 dbctl pg increase-credits alice 10 --apply -y    # +10% on alice's credits
+
+# ad-hoc SQL without declaring an operation (since v0.7.6):
+dbctl execute -c pg -o json "SELECT * FROM users"
+dbctl execute -c "postgresql+psycopg://u:p@host:5432/db" -o csv "SELECT 1"
+dbctl execute -c pg --show-sql --apply "DELETE FROM users WHERE name='bob'"
+dbctl execute -c pg -o yaml -- "SELECT * FROM users WHERE name='-alice'"  # SQL starting with a dash needs `--`
 
 # multi-DB modes (operation-first, preferred since v0.6):
 dbctl user-count pg my                        # multi-DB diff

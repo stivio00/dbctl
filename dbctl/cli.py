@@ -20,10 +20,12 @@ from typing import Any
 import click
 import yaml
 from rich.table import Table
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from dbctl import __version__
-from dbctl.config import Operation, OutputFormat, Param, ParamType
+from dbctl.config import Connection, Operation, OutputFormat, Param, ParamType
 from dbctl.operations import by_scope
 from dbctl.operations import resolve as resolve_op
 from dbctl.runtime import (
@@ -1020,7 +1022,17 @@ def _aliases(conns):
 
 def _root_list(ctx: click.Context) -> list[str]:
     conns, ops = registries(ctx)
-    static = ["connections", "operations", "status", "doctor", "init", "history", "tunnel", "ui"]
+    static = [
+        "connections",
+        "operations",
+        "status",
+        "doctor",
+        "init",
+        "history",
+        "tunnel",
+        "ui",
+        "execute",
+    ]
     # multi-op operation-first top-level commands + deprecated verb-first groups
     multi_ops = {n for n, o in ops.items() if o.scope.value == "multi"}
     multi_modes = {o.mode.value for o in ops.values() if o.scope.value == "multi"}
@@ -1040,6 +1052,7 @@ def _root_get(ctx: click.Context, name: str):
         "history": history_cmd,
         "tunnel": tunnel_cmd,
         "ui": ui_cmd,
+        "execute": execute_cmd,
     }
     if name in static:
         return static[name]
@@ -1337,6 +1350,281 @@ def ui_cmd(ctx):
     from dbctl.ui.app import DbctlApp
 
     DbctlApp(profile=ctx.obj.get("profile")).run()
+
+
+# --------------------------------------------------------------------------- #
+# ad-hoc SQL: `dbctl execute`
+# --------------------------------------------------------------------------- #
+# A read-only SQL verb is one whose first word matches this set. "VALUES"
+# / "TABLE" are SQL-standard row-set constructors; "WITH" is a CTE head;
+# the rest are dialect-specific introspection verbs (EXPLAIN / DESCRIBE /
+# SHOW / PRAGMA / DESC) that return a result set the user wants to render
+# like a SELECT.
+_READ_VERBS = {
+    "SELECT",
+    "WITH",
+    "VALUES",
+    "TABLE",
+    "SHOW",
+    "EXPLAIN",
+    "DESC",
+    "DESCRIBE",
+    "PRAGMA",
+}
+
+
+def _sql_is_read(sql: str) -> bool:
+    head = sql.strip().lstrip("(").strip().split(None, 1)
+    return bool(head) and head[0].upper() in _READ_VERBS
+
+
+def _make_inline_connection(url: str) -> Connection:
+    """Build a transient ``Connection`` from a full SQLAlchemy URL.
+
+    Used by ``dbctl execute -c "<sqlalchemy url>"``. The placeholder
+    ``direct`` block is required by the ``Connection`` validator even in
+    URL mode, but it's never *used* — ``build_engine`` honours ``url:``
+    over host/port. Default safety mirrors the bundled dev connections:
+    DML is dry-run-by-default unless ``--apply`` is supplied.
+    """
+    from dbctl.config import Connection
+
+    return Connection.model_validate(
+        {
+            "type": "direct",
+            "direct": {"host": "localhost", "port": 1},
+            "url": url,
+            "healthcheck": {"query": "SELECT 1", "timeout_seconds": 5},
+            "safety": {"confirm": True, "read_only": False},
+        }
+    )
+
+
+def _do_execute_ad_hoc(
+    *,
+    engine: Engine,
+    sql: str,
+    is_select: bool,
+    output_fmt: str,
+    canonical: str,
+    profile: str | None,
+    actor: str | None,
+) -> None:
+    """Run an ad-hoc SQL string against ``engine`` and render the result.
+
+    SELECT-shaped SQL runs in a read-only ``engine.connect()`` and renders
+    via ``render_rows`` (table / json / yaml / csv). DML runs inside
+    ``engine.begin()`` and reports rows-affected with a green OK line. Any
+    SQLAlchemy / runtime error is rendered via ``fmt_db_error`` (one-line
+    friendly message) and exits 1 — matching the declared-op execution
+    path's behaviour. Every run is appended to the audit log as
+    ``operation="execute"`` with the SQL (truncated to 500 chars) in
+    ``params`` so it shows up under ``dbctl history list``.
+    """
+    from dbctl.audit import append
+    from dbctl.reports import render_rows
+
+    started = time.monotonic()
+    mode_label = "fetch" if is_select else "execute"
+    audit_sql = sql[:500]
+    rows_affected: int | None = None
+    try:
+        if is_select:
+            with engine.connect() as c:
+                rows = [dict(r) for r in c.execute(text(sql)).mappings()]
+            render_rows(rows, output_fmt, title=canonical)
+        else:
+            with engine.begin() as c:
+                result = c.execute(text(sql))
+                rows_affected = result.rowcount
+            elapsed = (time.monotonic() - started) * 1000.0
+            # Many drivers report rowcount = -1 (unknown) for DDL and for
+            # statements that don't naturally expose a row count (CREATE
+            # TABLE, DROP TABLE, ALTER, ...). Render a cleaner line instead
+            # of the misleading "OK -1 row(s) affected".
+            if rows_affected is not None and rows_affected >= 0:
+                console.print(
+                    f"[green]OK[/green] {rows_affected} row(s) affected in {elapsed:.1f}ms"
+                )
+            else:
+                console.print(f"[green]OK[/green] in {elapsed:.1f}ms")
+    except (RuntimeError, SQLAlchemyError) as e:
+        append(
+            profile=profile,
+            connection=canonical,
+            operation="execute",
+            params={"sql": audit_sql},
+            mode=mode_label,
+            status="error",
+            duration_ms=(time.monotonic() - started) * 1000.0,
+            actor=actor,
+        )
+        err_console.print(f"[red]{_fmt_db_error(e)}[/red]")
+        raise SystemExit(1)
+    append(
+        profile=profile,
+        connection=canonical,
+        operation="execute",
+        params={"sql": audit_sql},
+        mode=mode_label,
+        status="ok",
+        rows_affected=rows_affected,
+        duration_ms=(time.monotonic() - started) * 1000.0,
+        actor=actor,
+    )
+
+
+@click.command("execute", context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "-c",
+    "--connection",
+    "connection_str",
+    required=True,
+    metavar="CONN-OR-URL",
+    help=(
+        "Either a connection name / alias from connections.yaml, or a full "
+        "SQLAlchemy URL (e.g. "
+        "'postgresql+psycopg://user:pass@host:5432/db'). "
+        "URLs are detected by the presence of '://'."
+    ),
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_fmt",
+    type=click.Choice([m.value for m in OutputFormat]),
+    default="table",
+    show_default=True,
+    help="Output format for SELECT-shaped results (ignored for DML).",
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    help="Commit any DML (default is a dry-run preview when confirm is on).",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Skip the confirmation prompt before DML is committed.",
+)
+@click.option(
+    "--show-sql",
+    is_flag=True,
+    help="Print the SQL before executing.",
+)
+@click.argument("sql")
+@click.pass_context
+def execute_cmd(ctx: click.Context, connection_str: str, output_fmt: str, apply: bool, yes: bool,
+                show_sql: bool, sql: str) -> None:
+    """Run ad-hoc SQL against a configured connection OR a full SQLAlchemy URL.
+
+    The SQL is auto-classified by its first verb: SELECT / WITH / SHOW /
+    EXPLAIN / DESCRIBE / PRAGMA / VALUES / TABLE runs as a query and is
+    rendered via ``--output`` (table / json / yaml / csv). Anything else
+    (INSERT / UPDATE / DELETE / CREATE / DROP / ALTER / ...) runs as DML
+    with the same dry-run-by-default + ``--apply`` safety semantics as a
+    declared ``mode: execute`` operation: on a connection with
+    ``safety.confirm: true`` (the default config), the SQL is previewed
+    and the audit log records a ``dry-run`` status unless ``--apply`` is
+    passed; ``--yes`` skips the final [y/N] prompt.
+
+    \b
+    Examples:
+      dbctl execute -c pg -o json "SELECT * FROM users"
+      dbctl execute -c pg --show-sql --apply "DELETE FROM users WHERE name='bob'"
+      dbctl execute -c "postgresql+psycopg://u:p@host:5432/db" -o csv "SELECT 1"
+      dbctl execute -c sqlite -o yaml "SELECT name FROM sqlite_master WHERE type='table'"
+
+    \b
+    If the SQL itself begins with a dash, separate options from the
+    positional with ``--`` (Click would otherwise treat the leading dash
+    as an unknown option):
+      dbctl execute -c pg -- "-- my SQL comment starting with a dash"
+
+    Every run is appended to ~/.dbctl/history.jsonl as
+    ``operation="execute"`` so it shows up under ``dbctl history list``;
+    the SQL (truncated to 500 chars) is recorded in the audit entry's
+    ``params.sql`` field.
+    """
+    from dbctl.connections import resolve as resolve_conn_name
+
+    sql_clean = sql.strip()
+    if not sql_clean:
+        err_console.print("[red]empty SQL statement[/red]")
+        raise SystemExit(2)
+    is_select = _sql_is_read(sql_clean)
+
+    is_url = "://" in connection_str
+    if is_url:
+        canonical = "<inline>"
+        try:
+            conn = _make_inline_connection(connection_str)
+        except Exception as e:  # noqa: BLE001 - validator / make-url errors
+            err_console.print(f"[red]invalid connection URL: {e}[/red]")
+            raise SystemExit(2)
+    else:
+        conns, _ = registries(ctx)
+        try:
+            canonical, conn = resolve_conn_name(connection_str, conns)
+        except KeyError as e:
+            err_console.print(f"[red]{e}[/red]")
+            raise SystemExit(2)
+
+    if show_sql:
+        console.print(f"[cyan]SQL:[/cyan]\n{sql_clean}")
+
+    profile = ctx.obj.get("profile")
+    actor = ctx.obj.get("actor")
+
+    # DML safety gate — mirrors `_execute_single`'s read_only / confirm / dry-run logic.
+    if not is_select:
+        if conn.safety.read_only:
+            err_console.print(
+                f"[red]connection {canonical!r} is read-only; DML is blocked[/red]"
+            )
+            raise SystemExit(6)
+        if conn.safety.confirm and not apply:
+            console.print("[yellow]dry-run (use --apply to commit)[/yellow]")
+            from dbctl.audit import append
+
+            append(
+                profile=profile,
+                connection=canonical,
+                operation="execute",
+                params={"sql": sql_clean[:500]},
+                mode="execute",
+                status="dry-run",
+                actor=actor,
+            )
+            raise SystemExit(0)
+        if conn.safety.confirm and not yes:
+            confirm_or_abort(f"Apply SQL to {canonical}?", yes=yes)
+
+    if is_url:
+        from dbctl.runtime import opened_engine
+
+        with opened_engine(ctx, canonical, conn) as stub:
+            _do_execute_ad_hoc(
+                engine=stub.engine,
+                sql=sql_clean,
+                is_select=is_select,
+                output_fmt=output_fmt,
+                canonical=canonical,
+                profile=profile,
+                actor=actor,
+            )
+    else:
+        with opened_conn(ctx, canonical) as (_name, _conn, stub):
+            _do_execute_ad_hoc(
+                engine=stub.engine,
+                sql=sql_clean,
+                is_select=is_select,
+                output_fmt=output_fmt,
+                canonical=canonical,
+                profile=profile,
+                actor=actor,
+            )
 
 
 @main.group("history")
