@@ -8,10 +8,13 @@ the per-connection tunnel+engine lifecycle in ``dbctl.ui.session.SessionManager`
 
 from __future__ import annotations
 
+import contextlib
+
 from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.css.query import NoMatches
+from textual.reactive import reactive
 from textual.widgets import Footer, Header, TabbedContent, TabPane
 
 from dbctl.ui.connection_tree import ConnectionActivated, ConnectionTree, TableActivated
@@ -20,9 +23,15 @@ from dbctl.ui.operation_tab import OperationPane
 from dbctl.ui.registry import load_registries
 from dbctl.ui.screens import NewTabScreen
 from dbctl.ui.session import SessionManager
+from dbctl.ui.splitter import VerticalSplitter
 from dbctl.ui.tabs import RunnableTab
 
 DEFAULT_SQL = "SELECT * FROM <table> LIMIT 100;"
+
+MIN_TREE_WIDTH = 20
+MAX_TREE_WIDTH = 80
+DEFAULT_TREE_WIDTH = 32
+TREE_WIDTH_STEP = 4
 
 
 class DbctlApp(App[None]):
@@ -32,7 +41,6 @@ class DbctlApp(App[None]):
 
     CSS = """
     #connection-tree {
-        width: 32;
         border-right: solid $panel;
     }
     .pane-header {
@@ -67,7 +75,11 @@ class DbctlApp(App[None]):
         ("ctrl+r", "run_tab", "Run"),
         ("ctrl+n", "new_tab", "New tab"),
         ("ctrl+w", "close_tab", "Close tab"),
+        ("ctrl+left", "narrow_tree", "Narrow tree"),
+        ("ctrl+right", "widen_tree", "Widen tree"),
     ]
+
+    tree_width: reactive[int] = reactive(DEFAULT_TREE_WIDTH)
 
     def __init__(self, profile: str | None = None) -> None:
         super().__init__()
@@ -80,12 +92,23 @@ class DbctlApp(App[None]):
         yield Header()
         with Horizontal():
             yield ConnectionTree(self.connections, self.sessions, profile=self.profile, id="connection-tree")
+            yield VerticalSplitter(min_width=MIN_TREE_WIDTH, max_width=MAX_TREE_WIDTH, id="tree-splitter")
             yield TabbedContent(id="workspace")
         yield Footer()
 
     def on_mount(self) -> None:
         for warning in self._load_warnings:
             self.notify(warning, severity="warning", timeout=10)
+
+    def watch_tree_width(self, width: int) -> None:
+        with contextlib.suppress(NoMatches):  # not mounted yet - re-fires once it is
+            self.query_one("#connection-tree").styles.width = width
+
+    def action_narrow_tree(self) -> None:
+        self.tree_width = max(MIN_TREE_WIDTH, self.tree_width - TREE_WIDTH_STEP)
+
+    def action_widen_tree(self) -> None:
+        self.tree_width = min(MAX_TREE_WIDTH, self.tree_width + TREE_WIDTH_STEP)
 
     def on_unmount(self) -> None:
         self.sessions.disconnect_all()

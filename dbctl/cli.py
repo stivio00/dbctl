@@ -1334,14 +1334,8 @@ def init_cmd(ctx):
 @click.pass_context
 def ui_cmd(ctx):
     """Launch the interactive TUI: connection tree + tabbed SQL editor / operations."""
-    try:
-        from dbctl.ui.app import DbctlApp
-    except ImportError as e:
-        err_console.print(
-            "[red]the UI requires the 'textual' package.[/red] "
-            'install it with: pip install "dbctl[ui]"  (or: uv pip install "dbctl[ui]")'
-        )
-        raise SystemExit(1) from e
+    from dbctl.ui.app import DbctlApp
+
     DbctlApp(profile=ctx.obj.get("profile")).run()
 
 

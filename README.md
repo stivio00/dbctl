@@ -40,10 +40,10 @@ leaving the terminal.
 The declarative CLI above is still the primary interface: declaring
 operations in YAML keeps "what can be run against this DB" discoverable from
 a versioned file instead of buried in your shell history. For ad-hoc
-exploration, the optional `dbctl ui` (see below) gives you a schema browser
-and a SQL editor without leaving `dbctl`'s tunnel/safety/audit model - or
-open the tunnel with `dbctl tunnel open <conn>` and point your favourite
-client at the local bind.
+exploration, `dbctl ui` (see below) gives you a schema browser and a SQL
+editor without leaving `dbctl`'s tunnel/safety/audit model - or open the
+tunnel with `dbctl tunnel open <conn>` and point your favourite client at
+the local bind.
 
 ### How it reaches a database
 
@@ -322,12 +322,11 @@ audit log regardless of which DB password source the connection uses.
 
 ## Interactive UI (`dbctl ui`)
 
-An optional [Textual](https://textual.textualize.io/) TUI for interactive
-work, on top of the same connections/operations/tunnels/audit-log stack as
-the CLI - not a separate code path with its own rules.
+A [Textual](https://textual.textualize.io/) TUI for interactive work, on top
+of the same connections/operations/tunnels/audit-log stack as the CLI - not
+a separate code path with its own rules.
 
 ```bash
-uv pip install "dbctl[ui]"   # or: pip install "dbctl[ui]" - textual is not a base dependency
 dbctl ui
 ```
 
@@ -346,6 +345,9 @@ dbctl ui
   built from a declared operation's parameters). `Ctrl+N` opens a new tab,
   `Ctrl+W` closes the active one, `Ctrl+R` runs it - a results table appears
   below the editor/form.
+- **Resize the split**: `Ctrl+Left`/`Ctrl+Right` narrow/widen the connection
+  tree in steps, or drag the vertical bar between the two panes with the
+  mouse (terminal permitting).
 - Every run (SQL or operation) still respects `safety.read_only` /
   `safety.confirm` / `allowed_operations` and is appended to
   `~/.dbctl/history.jsonl`, exactly like a CLI-driven run.
@@ -387,7 +389,7 @@ dbctl/
     ├── audit.py            # history.jsonl
     ├── runtime.py          # opened_conn() ctx-mgr (tunnel+engine+healthcheck)
     ├── init.py             # dbctl init wizard
-    └── ui/                 # optional Textual TUI (`dbctl ui`, needs dbctl[ui])
+    └── ui/                 # Textual TUI (`dbctl ui`)
         ├── app.py          # DbctlApp: connection tree + tabbed workspace
         ├── session.py      # per-connection tunnel+engine kept open across tab-runs
         ├── connection_tree.py  # lazy schema browser (simple/normal view modes)
@@ -395,6 +397,7 @@ dbctl/
         ├── editor_tab.py   # SQL editor tab
         ├── operation_tab.py    # operation-launcher tab
         ├── screens.py      # confirm / new-tab modal screens
+        ├── splitter.py     # draggable pane-resize bar
         ├── results.py      # DataTable rendering helpers
         └── registry.py     # tolerant connections/operations loading
 ```

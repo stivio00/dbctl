@@ -33,6 +33,7 @@ dependencies = [
   "pyodbc>=5",
   "oracledb>=2",
   "duckdb>=1",
+  "textual>=0.60",
 ]
 
 [project.optional-dependencies]
@@ -42,10 +43,6 @@ dev = [
   "pytest-asyncio>=0.24",
   "ruff>=0.5",
   "mypy>=1.10",
-  "textual>=0.60",
-]
-ui = [
-  "textual>=0.60",
 ]
 
 [project.scripts]

@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("textual")
-
-from dbctl.ui.app import DbctlApp  # noqa: E402
-from dbctl.ui.connection_tree import ConnectionTree  # noqa: E402
+from dbctl.ui.app import DbctlApp
+from dbctl.ui.connection_tree import ConnectionTree
 
 
 async def test_tree_renders_configured_connections(stub_registry):

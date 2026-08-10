@@ -12,9 +12,7 @@ import sqlite3
 
 import pytest
 
-pytest.importorskip("textual")
-
-from dbctl.config import Connection  # noqa: E402
+from dbctl.config import Connection
 
 
 @pytest.fixture()

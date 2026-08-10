@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import pytest
+from textual.widgets import TabbedContent, TabPane
 
-pytest.importorskip("textual")
-
-from textual.widgets import TabbedContent, TabPane  # noqa: E402
-
-from dbctl.ui.app import DbctlApp  # noqa: E402
+from dbctl.ui.app import DbctlApp
 
 
 async def test_multiple_tabs_can_be_open_at_once(stub_registry):

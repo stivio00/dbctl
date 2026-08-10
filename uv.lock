@@ -296,6 +296,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "sqlalchemy" },
+    { name = "textual" },
 ]
 
 [package.optional-dependencies]
@@ -305,10 +306,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "textual" },
-]
-ui = [
-    { name = "textual" },
 ]
 
 [package.metadata]
@@ -328,10 +325,9 @@ requires-dist = [
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sqlalchemy", specifier = ">=2" },
-    { name = "textual", marker = "extra == 'dev'", specifier = ">=0.60" },
-    { name = "textual", marker = "extra == 'ui'", specifier = ">=0.60" },
+    { name = "textual", specifier = ">=0.60" },
 ]
-provides-extras = ["dev", "ui"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "duckdb"

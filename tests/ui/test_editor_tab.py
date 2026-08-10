@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import pytest
+from textual.widgets import DataTable, TextArea
 
-pytest.importorskip("textual")
-
-from textual.widgets import DataTable, TextArea  # noqa: E402
-
-from dbctl.audit import read as read_audit  # noqa: E402
-from dbctl.ui.app import DbctlApp  # noqa: E402
-from dbctl.ui.editor_tab import SqlEditorPane, is_write_statement  # noqa: E402
+from dbctl.audit import read as read_audit
+from dbctl.ui.app import DbctlApp
+from dbctl.ui.editor_tab import SqlEditorPane, is_write_statement
 
 
 def test_is_write_statement_detects_select_as_read_only():

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from textual.widgets import DataTable, Input
 
-pytest.importorskip("textual")
-
-from textual.widgets import DataTable, Input  # noqa: E402
-
-from dbctl.audit import read as read_audit  # noqa: E402
-from dbctl.config import Operation  # noqa: E402
-from dbctl.ui.app import DbctlApp  # noqa: E402
-from dbctl.ui.operation_tab import OperationPane  # noqa: E402
+from dbctl.audit import read as read_audit
+from dbctl.config import Operation
+from dbctl.ui.app import DbctlApp
+from dbctl.ui.operation_tab import OperationPane
 
 
 @pytest.fixture()

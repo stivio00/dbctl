@@ -1,6 +1,5 @@
 """Interactive Textual UI for dbctl (`dbctl ui`).
 
-Optional: requires the `textual` package (``pip install "dbctl[ui]"``).
 This package only *consumes* the existing loaders/executors
 (``dbctl.connections``, ``dbctl.operations``, ``dbctl.tunnels``, ``dbctl.db``,
 ``dbctl.execute``, ``dbctl.audit``) - it does not change their behavior.

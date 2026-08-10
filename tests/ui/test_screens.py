@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from textual.widgets import RadioSet, Select, TabbedContent, TabPane
 
-pytest.importorskip("textual")
-
-from textual.widgets import RadioSet, Select, TabbedContent, TabPane  # noqa: E402
-
-from dbctl.config import Operation  # noqa: E402
-from dbctl.ui.app import DbctlApp  # noqa: E402
-from dbctl.ui.editor_tab import SqlEditorPane  # noqa: E402
-from dbctl.ui.screens import NewTabScreen  # noqa: E402
+from dbctl.config import Operation
+from dbctl.ui.app import DbctlApp
+from dbctl.ui.editor_tab import SqlEditorPane
+from dbctl.ui.screens import NewTabScreen
 
 
 @pytest.fixture()
