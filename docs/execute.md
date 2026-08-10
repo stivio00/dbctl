@@ -96,7 +96,7 @@ dbctl pg history                 # per-connection audit log skips <inline> entri
 # SELECT rendered as JSON
 dbctl execute -c pg -o json "SELECT * FROM users LIMIT 10"
 
-# dduckdb inline URL — render YAML
+# duckdb inline URL — render YAML
 dbctl execute -c "duckdb:/:memory:" -o yaml "SELECT 1 AS one"
 
 # CSV to a file, no TTY

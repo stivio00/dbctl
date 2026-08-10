@@ -1443,9 +1443,7 @@ def _do_execute_ad_hoc(
             # TABLE, DROP TABLE, ALTER, ...). Render a cleaner line instead
             # of the misleading "OK -1 row(s) affected".
             if rows_affected is not None and rows_affected >= 0:
-                console.print(
-                    f"[green]OK[/green] {rows_affected} row(s) affected in {elapsed:.1f}ms"
-                )
+                console.print(f"[green]OK[/green] {rows_affected} row(s) affected in {elapsed:.1f}ms")
             else:
                 console.print(f"[green]OK[/green] in {elapsed:.1f}ms")
     except (RuntimeError, SQLAlchemyError) as e:
@@ -1515,8 +1513,9 @@ def _do_execute_ad_hoc(
 )
 @click.argument("sql")
 @click.pass_context
-def execute_cmd(ctx: click.Context, connection_str: str, output_fmt: str, apply: bool, yes: bool,
-                show_sql: bool, sql: str) -> None:
+def execute_cmd(
+    ctx: click.Context, connection_str: str, output_fmt: str, apply: bool, yes: bool, show_sql: bool, sql: str
+) -> None:
     """Run ad-hoc SQL against a configured connection OR a full SQLAlchemy URL.
 
     The SQL is auto-classified by its first verb: SELECT / WITH / SHOW /
@@ -1580,9 +1579,7 @@ def execute_cmd(ctx: click.Context, connection_str: str, output_fmt: str, apply:
     # DML safety gate — mirrors `_execute_single`'s read_only / confirm / dry-run logic.
     if not is_select:
         if conn.safety.read_only:
-            err_console.print(
-                f"[red]connection {canonical!r} is read-only; DML is blocked[/red]"
-            )
+            err_console.print(f"[red]connection {canonical!r} is read-only; DML is blocked[/red]")
             raise SystemExit(6)
         if conn.safety.confirm and not apply:
             console.print("[yellow]dry-run (use --apply to commit)[/yellow]")

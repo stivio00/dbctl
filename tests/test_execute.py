@@ -411,9 +411,10 @@ def test_named_connection_uses_opened_conn(runner, monkeypatch, tmp_path, with_h
         yield name, SimpleNamespace(safety=SimpleNamespace(read_only=False, confirm=False)), stub
 
     monkeypatch.setattr("dbctl.cli.registries", lambda _ctx: ({}, {}))
-    monkeypatch.setattr("dbctl.connections.resolve", lambda n, reg: (n, SimpleNamespace(
-        safety=SimpleNamespace(read_only=False, confirm=False)
-    )))
+    monkeypatch.setattr(
+        "dbctl.connections.resolve",
+        lambda n, reg: (n, SimpleNamespace(safety=SimpleNamespace(read_only=False, confirm=False))),
+    )
     monkeypatch.setattr("dbctl.cli.opened_conn", fake_opened_conn)
 
     r = runner.invoke(

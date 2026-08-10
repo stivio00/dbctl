@@ -395,6 +395,7 @@ dbctl/
 ├── docs/
 │   ├── connections.md      # connections.yaml reference
 │   ├── operations.md       # operations.yaml reference
+│   ├── execute.md          # dbctl execute (ad-hoc SQL) reference
 │   ├── tui.md              # dbctl ui reference (keybindings, dialect SQL)
 │   └── DESIGN.md           # architecture and design decisions
 └── dbctl/

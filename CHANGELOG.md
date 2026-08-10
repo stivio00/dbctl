@@ -5,6 +5,27 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] — 2026-08-10
+
+### Fixed
+
+- **`ruff format` failed in CI** on the v0.7.6 commit — three files
+  (`dbctl/cli.py`, `dbctl/runtime.py`, `tests/test_execute.py`) had
+  manually-typed signatures that fit on one line per `ruff format`'s
+  rules but were wrapped in the source. Reformatted to the canonical
+  layout (`def opened_engine(ctx: click.Context, canonical: str, conn:
+  Connection) -> Iterator[OpenedStub]:` on one line; same for the
+  `execute_cmd` callback signature and the inline-URL error `print`
+  call). Re-running `uv run ruff format --check dbctl tests` is now
+  clean and `make format` is a no-op on top of this commit.
+- **Typo in `docs/execute.md`** — `# dduckdb inline URL` comment →
+  `# duckdb inline URL`.
+- **README project layout** now lists `execute.md` under `docs/` so the
+  new reference page is discoverable from the layout block.
+
+No behaviour change; re-running `dbctl execute --help` produces the
+same output as v0.7.6.
+
 ## [0.7.6] — 2026-08-10
 
 ### Added

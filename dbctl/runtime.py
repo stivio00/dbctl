@@ -119,9 +119,7 @@ def opened_conn(ctx: click.Context, name: str) -> Iterator[tuple[str, Connection
 
 
 @contextmanager
-def opened_engine(
-    ctx: click.Context, canonical: str, conn: Connection
-) -> Iterator[OpenedStub]:
+def opened_engine(ctx: click.Context, canonical: str, conn: Connection) -> Iterator[OpenedStub]:
     """Like ``opened_conn`` but takes a pre-built ``Connection`` (instead of
     resolving a name from the registry). Used by ``dbctl execute`` for
     inline SQLAlchemy URLs — the connection's ``direct`` block (a
