@@ -5,6 +5,51 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] — 2026-08-10
+
+### Added
+
+- **`dbctl ui`** — an interactive [Textual](https://textual.textualize.io/)
+  TUI on top of the same connections/operations/tunnels/audit-log stack as
+  the CLI (`textual` is a base dependency, no separate install step). See
+  `docs/tui.md` for the full reference.
+  - **Connection tree** doubling as a lazily-loaded schema browser: `m`
+    toggles a simple `connection → table → column` view and a fuller
+    `connection → schema → Tables/Views → table/view → Columns/Indexes`
+    view; `g` toggles a flat list and a grouping that treats `-` as a path
+    separator (`in-gateway-ifp-dev` nests under `in-gateway` → `ifp`), with
+    single-child folders compressed and support for a name that's both a
+    group and a real connection at once (`ifp` / `ifp-gateway`). `c`/`d`/`t`
+    connect/disconnect/test-tunnel; `a`/`e` open `connections.yaml` in
+    `$EDITOR`.
+  - **Tabbed workspace**: a SQL editor (syntax-highlighted) or an
+    operation-launcher (a form built from a declared operation's
+    parameters) per tab, each with an independently resizable results
+    table and a status line (row count / rows-affected + duration) below
+    it. `Ctrl+N` new tab, `Ctrl+O` searchable operation launcher (type to
+    filter), `Ctrl+W` close, `Ctrl+R` run. Activating a table/view in the
+    tree opens a SQL tab pre-filled with a dialect-correct preview query
+    (`LIMIT` / `TOP` / `FETCH FIRST … ROWS ONLY`, with per-dialect
+    identifier quoting for mixed-case table/schema names).
+  - Connect/disconnect/test-tunnel and every SQL/operation run happen on a
+    background thread with a loading indicator, so the UI stays responsive
+    instead of freezing while a tunnel spins up or a query runs.
+  - Every run still respects `safety.read_only` / `safety.confirm` /
+    `allowed_operations` and is appended to `~/.dbctl/history.jsonl`,
+    exactly like a CLI-driven run.
+
+### Fixed
+
+- **`uv.lock` could resolve against a contributor's local package-index
+  override instead of public PyPI** — a machine-level `uv` config pointing
+  at an internal package mirror silently became the index every regenerated
+  `uv.lock` entry was resolved and hashed against, which both leaked an
+  internal hostname into the lock file and broke `uv sync --frozen` for
+  anyone (CI included) without access to that mirror. Pinned
+  `[[tool.uv.index]]` in `pyproject.toml` with `default = true` so this
+  project always locks against `pypi.org`/`files.pythonhosted.org`
+  regardless of what index a contributor's environment defaults to.
+
 ## [0.7.3] — 2026-08-04
 
 ### Added

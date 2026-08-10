@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbctl"
-version = "0.7.3"
+version = "0.7.4"
 description = "Generic CLI to monitor, control, and administer multiple databases via SSM, SSH, or direct connection."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -60,6 +60,15 @@ packages = ["dbctl"]
 [tool.hatch.build.targets.sdist.force-include]
 "docs/logo.png" = "docs/logo.png"
 "docs/logo_small.png" = "docs/logo_small.png"
+
+# Pin the resolution index explicitly so a contributor's (or CI's) local uv
+# config - e.g. a corporate uv.toml defaulting to an internal Artifactory
+# mirror - can never leak into this project's uv.lock. Public projects must
+# lock against public PyPI, which nothing outside this machine can reach.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
 
 [tool.ruff]
 line-length = 110
