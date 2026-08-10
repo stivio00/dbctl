@@ -57,12 +57,40 @@ dialect-correct preview query using the real table name (see
 | `t` | test the tunnel (open + healthcheck + close, mirrors `dbctl tunnel test`) |
 | `a` / `e` | add / edit a connection - opens `connections.yaml` in `$EDITOR` |
 | `m` | toggle simple / normal view |
+| `g` | toggle flat / grouped connection list |
 | `Enter` | activate: open a SQL tab (connection) or a prefilled SQL tab (table/view) |
 
 `a` and `e` both shell out to `$EDITOR` on the whole `connections.yaml` file
 (a full in-app add/edit form is out of scope for now); on save, the registry
 reloads and every open connection is disconnected (existing tabs show "not
 connected" until reconnected - press `c` or re-expand the tree node).
+
+Connect, disconnect, and test-tunnel all run in the background (tunnel
+setup can spawn `aws`/`kubectl`/`ssh`/`az`/`gcloud` and take several
+seconds) - the node's own label animates as a spinner while its request is
+in flight, so the tree stays interactive rather than freezing.
+
+### Grouping (`g`)
+
+Real fleets often name connections hierarchically
+(`in-gateway-ifp-dev`, `imageextractor-prod`, `lookup-test`). `g` toggles
+between the flat list (default) and a grouping that treats `-` as a path
+separator, so `in-gateway-ifp-dev` nests under `in-gateway` → `ifp`. A
+folder that would only ever hold one child collapses into it - `azure` +
+`sql` becomes a single `azure-sql` node, not an `azure` folder wrapping a
+lone `sql` leaf.
+
+A name can be both a group *and* a real connection at once - `ifp` and
+`ifp-gateway` might both exist, or `lookup`/`lookup-dev`/`lookup-test`.
+Such a node still shows its own connect-state icon and responds to
+`c`/`d`/`t`/Enter directly; expanding it reveals a synthetic
+`(this connection)` child (drill into that to browse its own schema)
+alongside its sub-connections. Disconnecting a dual-purpose node only
+resets its own schema - its sub-connections are independent and are left
+alone.
+
+Pure organizational folders (no real connection at that exact name) show
+as `name/` and aren't connectable themselves.
 
 ## Workspace tabs
 
@@ -80,6 +108,13 @@ per tab (`Ctrl+Up` / `Ctrl+Down`, or drag the bar between them). The
 connection-tree / workspace split resizes the same way with
 `Ctrl+Left` / `Ctrl+Right`, or by dragging the vertical bar between the two
 panes.
+
+A run replaces the results table with an animated loading indicator while
+the query/operation is in flight (the DB round trip happens in a background
+thread, so the rest of the UI - other tabs, the tree, resizing - stays
+responsive) and shows a small status line below the results once it's
+done: row count or rows-affected plus duration (`3 row(s) · 4.2 ms`,
+`1 row(s) affected · 1.8 ms`, or `error · 0.6 ms`).
 
 **Ctrl+O** picks a target connection automatically - the active tab's
 connection, else whatever's highlighted in the tree, else the only
@@ -124,6 +159,17 @@ lower/UPPER case and would otherwise miss a mixed-case table:
 A schema-qualified table quotes each part independently, e.g. SQL Server's
 `[Sales].[Users]` rather than `[Sales.Users]`.
 
+## Known limitations
+
+`:memory:` sqlite/duckdb connections aren't recommended through the UI:
+connecting and running queries each happen on a background thread, and an
+in-memory database is tied to whichever single thread touched it first
+(`sqlite3`'s `check_same_thread` behavior) - a later operation on a
+different thread can silently see an empty database, and disposing the
+connection can log (harmless, but noisy) a driver-level warning on
+shutdown. File-based sqlite/duckdb connections aren't affected. Use a real
+file path for anything beyond a quick one-shot check.
+
 ## Installing
 
 `textual` is a base dependency of `dbctl` (not an optional extra) - `dbctl
@@ -133,6 +179,6 @@ ui` is available right after a normal install, no separate step.
 
 See the `dbctl/ui/` tree in the main [`README.md`](../README.md#project-layout)
 for where each piece of the TUI lives (`app.py`, `connection_tree.py`,
-`schema.py`, `editor_tab.py`, `operation_tab.py`, `session.py`,
-`sql_templates.py`, `screens.py`, `splitter.py`, `tabs.py`, `results.py`,
-`registry.py`).
+`grouping.py`, `schema.py`, `editor_tab.py`, `operation_tab.py`,
+`session.py`, `sql_templates.py`, `screens.py`, `splitter.py`, `tabs.py`,
+`results.py`, `registry.py`).

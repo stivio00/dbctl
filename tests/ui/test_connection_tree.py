@@ -32,7 +32,8 @@ async def test_expanding_connection_node_auto_connects_and_lists_tables(stub_reg
         tree = app.query_one(ConnectionTree)
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
 
         assert app.sessions.get("sqlite-test").connected
         labels = [str(c.label) for c in node.children]
@@ -46,11 +47,12 @@ async def test_simple_mode_table_expands_to_columns(stub_registry):
         assert tree.view_mode == "simple"
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
 
         table_node = node.children[0]
         table_node.expand()
-        await pilot.pause(0.2)
+        await pilot.pause()
         labels = [str(c.label) for c in table_node.children]
         assert any("id" in label for label in labels)
         assert any("name" in label for label in labels)
@@ -62,13 +64,15 @@ async def test_reexpanding_does_not_duplicate_children(stub_registry):
         tree = app.query_one(ConnectionTree)
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         first_count = len(node.children)
 
         node.collapse()
-        await pilot.pause(0.05)
+        await pilot.pause()
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         assert len(node.children) == first_count
 
 
@@ -82,13 +86,14 @@ async def test_toggle_view_mode_switches_to_schema_grouping(stub_registry):
 
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         schema_labels = [str(c.label) for c in node.children]
         assert schema_labels  # at least one schema (sqlite: "main")
 
         schema_node = node.children[0]
         schema_node.expand()
-        await pilot.pause(0.2)
+        await pilot.pause()
         group_labels = [str(c.label) for c in schema_node.children]
         assert any("Tables" in label for label in group_labels)
         assert any("Views" in label for label in group_labels)
@@ -104,7 +109,8 @@ async def test_activating_table_node_opens_prefilled_sql_tab(stub_registry):
         tree = app.query_one(ConnectionTree)
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         table_node = node.children[0]
 
         tree.select_node(table_node)
@@ -121,11 +127,14 @@ async def test_connect_disconnect_work_from_a_nested_cursor_position(stub_regist
         tree = app.query_one(ConnectionTree)
         node = tree._conn_nodes["sqlite-test"]
         node.expand()
-        await pilot.pause(0.2)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         table_node = node.children[0]
         tree.select_node(table_node)
         await pilot.pause()
 
         assert tree.connection_name_at_cursor() == "sqlite-test"
         tree.action_disconnect_selected()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         assert not app.sessions.get("sqlite-test").connected

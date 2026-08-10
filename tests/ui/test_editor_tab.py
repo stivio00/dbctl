@@ -26,6 +26,7 @@ async def test_sql_tab_run_populates_results_table(stub_registry, tmp_path):
         text_area.text = "SELECT * FROM users ORDER BY id"
 
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = pane.query_one("#results-table", DataTable)
@@ -51,6 +52,7 @@ async def test_sql_tab_shows_error_inline_on_bad_sql(stub_registry):
         text_area.text = "SELECT * FROM no_such_table"
 
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = pane.query_one("#results-table", DataTable)
@@ -65,6 +67,7 @@ async def test_sql_tab_without_connect_shows_hint(stub_registry):
 
         pane = app.query_one(SqlEditorPane)
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = pane.query_one("#results-table", DataTable)
@@ -86,6 +89,7 @@ async def test_sql_tab_survives_connection_removed_from_registry(stub_registry):
         app.sessions.reload({})  # simulates the connection disappearing
 
         app.action_run_tab()  # must not raise
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         pane = app.query_one(SqlEditorPane)

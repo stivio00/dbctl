@@ -108,6 +108,7 @@ async def test_toolbar_run_button_executes_tab(stub_registry):
         await pilot.pause()
 
         await pilot.click("#run-button")
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = app.query_one("#results-table", DataTable)

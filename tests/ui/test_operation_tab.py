@@ -47,6 +47,7 @@ async def test_operation_tab_fetch_populates_results(stub_registry, list_users_o
         await pilot.pause()
 
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         pane = app.query_one(OperationPane)
@@ -67,6 +68,7 @@ async def test_operation_tab_execute_writes_and_audits(stub_registry, add_user_o
         name_input.value = "carol"
 
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = pane.query_one("#results-table", DataTable)
@@ -92,6 +94,7 @@ async def test_operation_tab_respects_read_only_safety(stub_registry, add_user_o
         pane.query_one("#param-name", Input).value = "dave"
 
         app.action_run_tab()
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         table = pane.query_one("#results-table", DataTable)
@@ -113,6 +116,7 @@ async def test_operation_tab_survives_connection_removed_from_registry(stub_regi
         app.sessions.reload({})  # simulates the connection disappearing
 
         app.action_run_tab()  # must not raise
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         pane = app.query_one(OperationPane)

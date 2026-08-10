@@ -52,3 +52,25 @@ def stub_registry(monkeypatch, tmp_path, sqlite_connection):
     monkeypatch.setattr("dbctl.ui.registry.load_operations", lambda profile=None: {})
     monkeypatch.setattr("dbctl.audit.history_path", lambda profile=None: tmp_path / "history.jsonl")
     return connections
+
+
+@pytest.fixture()
+def grouped_registry(monkeypatch, tmp_path, sqlite_connection):
+    """Like `stub_registry`, but with several `-`-delimited connection
+    names (mirroring real hierarchical fleets) all pointed at the same
+    sqlite fixture db, for exercising the connection tree's group mode."""
+    names = [
+        "pg",
+        "ifp",
+        "ifp-gateway",
+        "lookup",
+        "lookup-dev",
+        "lookup-test",
+        "prod-tenant1",
+        "prod-tenant2",
+    ]
+    connections = {name: sqlite_connection.model_copy(deep=True) for name in names}
+    monkeypatch.setattr("dbctl.ui.registry.load_connections", lambda profile=None: dict(connections))
+    monkeypatch.setattr("dbctl.ui.registry.load_operations", lambda profile=None: {})
+    monkeypatch.setattr("dbctl.audit.history_path", lambda profile=None: tmp_path / "history.jsonl")
+    return connections

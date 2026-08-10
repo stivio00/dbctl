@@ -10,6 +10,7 @@ existing ``dbctl.tunnels`` / ``dbctl.db`` helpers.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -89,10 +90,17 @@ class SessionManager:
     def disconnect(self, name: str) -> None:
         session = self._sessions[name]
         if session.engine is not None:
-            session.engine.dispose()
+            # engine.dispose() can be called from a different thread than
+            # the one that created it (connect() now runs in a worker
+            # thread) - some DBAPI drivers (notably sqlite3 with a
+            # `:memory:` database) reject that with their own thread-
+            # affinity check. Best-effort cleanup: never let it crash the app.
+            with contextlib.suppress(Exception):
+                session.engine.dispose()
             session.engine = None
         if session.tunnel is not None:
-            session.tunnel.__exit__(None, None, None)
+            with contextlib.suppress(Exception):
+                session.tunnel.__exit__(None, None, None)
             session.tunnel = None
         session.error = None
 

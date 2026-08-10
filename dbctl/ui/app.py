@@ -64,6 +64,15 @@ class DbctlApp(App[None]):
     #results-table {
         height: 1fr;
     }
+    #run-loading {
+        height: 1fr;
+    }
+    #status-bar {
+        height: auto;
+        padding: 0 1;
+        background: $panel;
+        color: $text-muted;
+    }
     #confirm-dialog, #new-tab-dialog, #operation-launcher-dialog {
         width: 60;
         height: auto;

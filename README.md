@@ -336,11 +336,18 @@ dbctl ui
   fuller `connection → schema → Tables/Views → table/view →
   Columns/Indexes` view). Expanding a connection connects it if needed;
   activating (Enter) a table/view opens a SQL tab pre-filled with a
-  dialect-correct preview query using the real table name.
+  dialect-correct preview query using the real table name. `g` toggles a
+  grouped view that treats `-` as a path separator (`in-gateway-ifp-dev`
+  nests under `in-gateway` → `ifp`) - handy once a fleet has more than a
+  handful of connections.
 - **Right pane**: a tabbed workspace of SQL editor / operation-launcher
   tabs (`Ctrl+N` new tab, `Ctrl+O` searchable operation launcher, `Ctrl+W`
   close, `Ctrl+R` run), each with an independently resizable results table
-  below it.
+  below it and a status line (row count / rows affected + duration) after
+  each run.
+- Connecting, disconnecting, testing a tunnel, and every SQL/operation run
+  happen on a background thread with a loading indicator, so the UI stays
+  responsive instead of freezing while a tunnel spins up or a query runs.
 - Every run still respects `safety.read_only` / `safety.confirm` /
   `allowed_operations` and is appended to `~/.dbctl/history.jsonl`, exactly
   like a CLI-driven run.
@@ -389,12 +396,15 @@ dbctl/
     └── ui/                 # Textual TUI (`dbctl ui`)
         ├── app.py          # DbctlApp: connection tree + tabbed workspace
         ├── session.py      # per-connection tunnel+engine kept open across tab-runs
-        ├── connection_tree.py  # lazy schema browser (simple/normal view modes)
+        ├── connection_tree.py  # lazy schema browser (simple/normal + flat/grouped views)
+        ├── grouping.py     # "-" as a path separator -> compressed connection-name trie
         ├── schema.py       # sqlalchemy.inspect() wrapper for the tree
         ├── editor_tab.py   # SQL editor tab
         ├── operation_tab.py    # operation-launcher tab
-        ├── screens.py      # confirm / new-tab modal screens
-        ├── splitter.py     # draggable pane-resize bar
+        ├── sql_templates.py    # dialect-aware default SELECT + identifier quoting
+        ├── screens.py      # confirm / new-tab / operation-launcher modal screens
+        ├── splitter.py     # draggable pane-resize bars
+        ├── tabs.py         # shared tab base: resize, toolbar, status bar, loading indicator
         ├── results.py      # DataTable rendering helpers
         └── registry.py     # tolerant connections/operations loading
 ```
@@ -405,7 +415,7 @@ dbctl/
 uv sync --extra dev
 make help            # list all Makefile targets
 make check           # lint + unit tests (the pre-commit gate)
-make test            # unit tests (~200 tests, sqlite-backed, no docker)
+make test            # unit tests (~270 tests, sqlite-backed, no docker)
 make typecheck       # mypy strict (pre-existing debt; non-blocking)
 make smoke           # docker compose up + dbctl doctor against the fleet
 make build           # wheel + sdist via uv
