@@ -21,12 +21,11 @@ from dbctl.ui.connection_tree import ConnectionActivated, ConnectionTree, TableA
 from dbctl.ui.editor_tab import SqlEditorPane
 from dbctl.ui.operation_tab import OperationPane
 from dbctl.ui.registry import load_registries
-from dbctl.ui.screens import NewTabScreen
+from dbctl.ui.screens import NewTabScreen, OperationLauncherScreen
 from dbctl.ui.session import SessionManager
 from dbctl.ui.splitter import VerticalSplitter
-from dbctl.ui.tabs import RunnableTab
-
-DEFAULT_SQL = "SELECT * FROM <table> LIMIT 100;"
+from dbctl.ui.sql_templates import default_select, qualified_table
+from dbctl.ui.tabs import EDITOR_HEIGHT_STEP, MAX_EDITOR_HEIGHT, MIN_EDITOR_HEIGHT, RunnableTab
 
 MIN_TREE_WIDTH = 20
 MAX_TREE_WIDTH = 80
@@ -59,10 +58,13 @@ class DbctlApp(App[None]):
         width: 20;
         content-align: right middle;
     }
+    #sql-input, #param-form {
+        height: 1fr;
+    }
     #results-table {
         height: 1fr;
     }
-    #confirm-dialog, #new-tab-dialog {
+    #confirm-dialog, #new-tab-dialog, #operation-launcher-dialog {
         width: 60;
         height: auto;
         padding: 1 2;
@@ -75,8 +77,11 @@ class DbctlApp(App[None]):
         ("ctrl+r", "run_tab", "Run"),
         ("ctrl+n", "new_tab", "New tab"),
         ("ctrl+w", "close_tab", "Close tab"),
+        ("ctrl+o", "launch_operation", "Run operation"),
         ("ctrl+left", "narrow_tree", "Narrow tree"),
         ("ctrl+right", "widen_tree", "Widen tree"),
+        ("ctrl+up", "grow_editor", "Grow editor"),
+        ("ctrl+down", "shrink_editor", "Shrink editor"),
     ]
 
     tree_width: reactive[int] = reactive(DEFAULT_TREE_WIDTH)
@@ -92,7 +97,7 @@ class DbctlApp(App[None]):
         yield Header()
         with Horizontal():
             yield ConnectionTree(self.connections, self.sessions, profile=self.profile, id="connection-tree")
-            yield VerticalSplitter(min_width=MIN_TREE_WIDTH, max_width=MAX_TREE_WIDTH, id="tree-splitter")
+            yield VerticalSplitter(min_value=MIN_TREE_WIDTH, max_value=MAX_TREE_WIDTH, id="tree-splitter")
             yield TabbedContent(id="workspace")
         yield Footer()
 
@@ -119,8 +124,9 @@ class DbctlApp(App[None]):
 
     @on(TableActivated)
     def _open_table_tab(self, message: TableActivated) -> None:
-        qualified = f"{message.schema_name}.{message.table}" if message.schema_name else message.table
-        self.open_sql_tab(message.conn_name, sql=f"SELECT * FROM {qualified} LIMIT 100;")
+        conn = self.connections[message.conn_name]
+        target = qualified_table(conn, message.table, message.schema_name)
+        self.open_sql_tab(message.conn_name, sql=default_select(conn, target))
 
     def _next_tab_id(self) -> str:
         self._tab_seq += 1
@@ -129,7 +135,8 @@ class DbctlApp(App[None]):
     def open_sql_tab(self, conn_name: str, *, sql: str | None = None) -> None:
         tabbed = self.query_one(TabbedContent)
         tab_id = self._next_tab_id()
-        pane = SqlEditorPane(conn_name, self.sessions, sql or DEFAULT_SQL, self.profile, id=f"pane-{tab_id}")
+        initial_sql = sql or default_select(self.connections[conn_name])
+        pane = SqlEditorPane(conn_name, self.sessions, initial_sql, self.profile, id=f"pane-{tab_id}")
         tabbed.add_pane(TabPane(f"{conn_name}: sql", pane, id=tab_id))
         tabbed.active = tab_id
 
@@ -163,13 +170,56 @@ class DbctlApp(App[None]):
         if tabbed.active:
             tabbed.remove_pane(tabbed.active)
 
-    def action_run_tab(self) -> None:
-        tabbed = self.query_one(TabbedContent)
-        pane = tabbed.active_pane
+    def _active_runnable(self) -> RunnableTab | None:
+        pane = self.query_one(TabbedContent).active_pane
         if pane is None:
-            return
+            return None
         try:
-            runnable = pane.query_one(RunnableTab)
+            return pane.query_one(RunnableTab)
         except NoMatches:
+            return None
+
+    def action_run_tab(self) -> None:
+        runnable = self._active_runnable()
+        if runnable is not None:
+            runnable.run_tab()
+
+    def action_grow_editor(self) -> None:
+        runnable = self._active_runnable()
+        if runnable is not None:
+            runnable.editor_height = min(MAX_EDITOR_HEIGHT, runnable.editor_height + EDITOR_HEIGHT_STEP)
+
+    def action_shrink_editor(self) -> None:
+        runnable = self._active_runnable()
+        if runnable is not None:
+            runnable.editor_height = max(MIN_EDITOR_HEIGHT, runnable.editor_height - EDITOR_HEIGHT_STEP)
+
+    def _resolve_launch_connection(self) -> str | None:
+        """Pick the connection Ctrl+O should target: the active tab's
+        connection, else whatever's highlighted in the tree, else the only
+        connection if there's just one."""
+        runnable = self._active_runnable()
+        if runnable is not None:
+            return runnable.conn_name
+        name = self.query_one(ConnectionTree).connection_name_at_cursor()
+        if name:
+            return name
+        if len(self.connections) == 1:
+            return next(iter(self.connections))
+        return None
+
+    def action_launch_operation(self) -> None:
+        singles = {n: o for n, o in self.operations.items() if o.scope.value == "single"}
+        if not singles:
+            self.notify("no operations configured", severity="warning")
             return
-        runnable.run_tab()
+        conn_name = self._resolve_launch_connection()
+        if conn_name is None:
+            self.notify("highlight a connection in the tree first", severity="warning")
+            return
+
+        def handle(op_name: str | None) -> None:
+            if op_name is not None:
+                self.open_operation_tab(conn_name, op_name)
+
+        self.push_screen(OperationLauncherScreen(singles, conn_name), handle)

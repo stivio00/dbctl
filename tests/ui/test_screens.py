@@ -6,7 +6,7 @@ from textual.widgets import RadioSet, Select, TabbedContent, TabPane
 from dbctl.config import Operation
 from dbctl.ui.app import DbctlApp
 from dbctl.ui.editor_tab import SqlEditorPane
-from dbctl.ui.screens import NewTabScreen
+from dbctl.ui.screens import ConfirmScreen, NewTabScreen
 
 
 @pytest.fixture()
@@ -75,3 +75,41 @@ async def test_new_tab_with_no_connections_notifies_instead_of_opening_modal(mon
     async with app.run_test():
         app.action_new_tab()
         assert not isinstance(app.screen, NewTabScreen)
+
+
+async def test_new_tab_escape_cancels(stub_registry):
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        app.action_new_tab()
+        await pilot.pause()
+        assert isinstance(app.screen, NewTabScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, NewTabScreen)
+        assert len(app.query(TabPane)) == 0
+
+
+async def test_confirm_screen_escape_dismisses_false():
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        result: dict[str, bool] = {}
+        app.push_screen(ConfirmScreen("apply?"), lambda ok: result.update(value=ok))
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert result == {"value": False}
+
+
+async def test_confirm_screen_apply_button_dismisses_true():
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        result: dict[str, bool] = {}
+        app.push_screen(ConfirmScreen("apply?"), lambda ok: result.update(value=ok))
+        await pilot.pause()
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        assert result == {"value": True}

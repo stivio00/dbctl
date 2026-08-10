@@ -126,6 +126,6 @@ async def test_connect_disconnect_work_from_a_nested_cursor_position(stub_regist
         tree.select_node(table_node)
         await pilot.pause()
 
-        assert tree._connection_name_at_cursor() == "sqlite-test"
+        assert tree.connection_name_at_cursor() == "sqlite-test"
         tree.action_disconnect_selected()
         assert not app.sessions.get("sqlite-test").connected

@@ -123,7 +123,7 @@ class ConnectionTree(Tree[NodeData]):
         session = self._sessions.get(name)
         self._conn_nodes[name].set_label(_connection_label(name, conn, session.connected, session.error))
 
-    def _connection_name_at_cursor(self) -> str | None:
+    def connection_name_at_cursor(self) -> str | None:
         node = self.cursor_node
         while node is not None:
             if node.data is not None and node.data.kind == "connection":
@@ -316,7 +316,7 @@ class ConnectionTree(Tree[NodeData]):
     # connect / disconnect / test / add / edit
     # ------------------------------------------------------------------ #
     def action_connect_selected(self) -> None:
-        name = self._connection_name_at_cursor()
+        name = self.connection_name_at_cursor()
         if not name:
             return
         session = self._sessions.connect(name)
@@ -327,7 +327,7 @@ class ConnectionTree(Tree[NodeData]):
             self.app.notify(f"{name}: connected")
 
     def action_disconnect_selected(self) -> None:
-        name = self._connection_name_at_cursor()
+        name = self.connection_name_at_cursor()
         if not name:
             return
         self._sessions.disconnect(name)
@@ -339,7 +339,7 @@ class ConnectionTree(Tree[NodeData]):
         self.app.notify(f"{name}: disconnected")
 
     def action_test_tunnel_selected(self) -> None:
-        name = self._connection_name_at_cursor()
+        name = self.connection_name_at_cursor()
         if not name:
             return
         ok, msg = self._sessions.test_tunnel(name)

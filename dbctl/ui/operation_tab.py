@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DataTable, Input, Label, Static, Switch
+from textual.widgets import DataTable, Input, Label, Static, Switch
 
 from dbctl.audit import append as audit_append
 from dbctl.config import Operation, ParamType
@@ -40,7 +40,7 @@ class OperationPane(RunnableTab):
         self._sessions = sessions
         self._profile = profile
 
-    def compose(self) -> ComposeResult:
+    def compose_editor(self) -> ComposeResult:
         yield Static(f"[b]{self.conn_name}[/b] :: {self.op_name} — Ctrl+R to run", classes="pane-header")
         with Vertical(id="param-form"):
             for p in self.op.parameters:
@@ -55,9 +55,6 @@ class OperationPane(RunnableTab):
                             password=p.type is ParamType.secret,
                             id=f"param-{p.name}",
                         )
-        with Horizontal(classes="pane-toolbar"):
-            yield Button("Run (Ctrl+R)", id="run-button", variant="primary")
-        yield DataTable(id="results-table")
 
     def _collect_params(self) -> dict[str, Any]:
         raw: dict[str, Any] = {}
@@ -138,7 +135,3 @@ class OperationPane(RunnableTab):
 
     def _secret_names(self) -> set[str]:
         return {p.name for p in self.op.parameters if p.type is ParamType.secret}
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "run-button":
-            self.run_tab()

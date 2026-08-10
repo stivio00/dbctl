@@ -11,8 +11,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from textual.app import ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import Button, DataTable, Static, TextArea
+from textual.widgets import DataTable, Static, TextArea
 
 from dbctl.audit import append as audit_append
 from dbctl.db import fmt_db_error
@@ -49,12 +48,9 @@ class SqlEditorPane(RunnableTab):
         self._initial_sql = initial_sql
         self._profile = profile
 
-    def compose(self) -> ComposeResult:
+    def compose_editor(self) -> ComposeResult:
         yield Static(f"[b]{self.conn_name}[/b] — Ctrl+R to run", classes="pane-header")
         yield TextArea.code_editor(self._initial_sql, language="sql", id="sql-input")
-        with Horizontal(classes="pane-toolbar"):
-            yield Button("Run (Ctrl+R)", id="run-button", variant="primary")
-        yield DataTable(id="results-table")
 
     def run_tab(self) -> None:
         table = self.query_one("#results-table", DataTable)
@@ -120,7 +116,3 @@ class SqlEditorPane(RunnableTab):
             results.show_rows(table, rows)
         else:
             results.show_message(table, f"OK, {rows_affected} row(s) affected ({duration_ms:.1f}ms)")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "run-button":
-            self.run_tab()

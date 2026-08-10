@@ -338,8 +338,12 @@ dbctl ui
   - **normal**: `connection → schema → Tables/Views → table/view → Columns/Indexes`
 
   Expanding a connection node connects it first if needed. Activating
-  (Enter) a table or view opens a SQL tab pre-filled with
-  `SELECT * FROM <table> LIMIT 100;` using the real table name.
+  (Enter) a table or view opens a SQL tab pre-filled with a dialect-correct
+  preview query using the real table name - `LIMIT` for
+  postgres/mysql/sqlite/duckdb, `TOP` for SQL Server, `FETCH FIRST … ROWS
+  ONLY` for Oracle - with the table (and schema) quoted per-dialect
+  (`"Name"`, `[Name]`, or `` `Name` ``) whenever it isn't a plain lowercase
+  identifier.
 - **Right pane**: a tabbed workspace. Each tab is either a SQL editor (syntax
   highlighted) bound to one connection, or an operation launcher (a form
   built from a declared operation's parameters). `Ctrl+N` opens a new tab,
