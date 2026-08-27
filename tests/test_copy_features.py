@@ -274,3 +274,29 @@ def test_copy_spec_on_conflict_still_works_alongside_new_fields():
     )
     assert op.copy_spec.on_conflict == OnConflict.skip
     assert op.copy_spec.diagnose_failures is False
+
+
+# --------------------------------------------------------------------------- #
+# column names containing characters other than [A-Za-z0-9_]
+# --------------------------------------------------------------------------- #
+def test_copy_handles_column_name_with_space(src_trg):
+    # A column named "Last price" (real-world source schemas sometimes have
+    # a display-style column name migrated as-is). `text()` bind parameters
+    # are parsed up to the first non-identifier character, so a naive
+    # `:Last price` placeholder is parsed as parameter `Last` followed by
+    # the literal SQL text `price` — this must not happen.
+    src_trg_path_src, src_trg_path_trg, src, trg = src_trg
+    _make_db(
+        src_trg_path_src,
+        'CREATE TABLE t (id INTEGER PRIMARY KEY, "Last price" REAL)',
+        [(1, 12.5), (2, 7.0)],
+    )
+    _make_db(src_trg_path_trg, 'CREATE TABLE t (id INTEGER PRIMARY KEY, "Last price" REAL)', [])
+
+    spec = CopySpec(tables=["t"])
+    report = run_copy(src, trg, spec)
+    assert report.results[0].trg_rows_inserted == 2
+
+    with trg.engine.connect() as c:
+        rows = c.exec_driver_sql('SELECT id, "Last price" FROM t ORDER BY id').fetchall()
+    assert rows == [(1, 12.5), (2, 7.0)]

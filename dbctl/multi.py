@@ -20,6 +20,7 @@ Execution paths here:
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -367,13 +368,34 @@ def _truncate_table(c, table: str, engine) -> None:
             c.execute(text(f"DELETE FROM {table_q}"))
 
 
+def _safe_param_names(columns: list[str]) -> dict[str, str]:
+    """Map each column name to a SQLAlchemy-safe bind-parameter name.
+
+    ``text()`` parses a ``:name`` bind parameter up to the first character
+    outside ``[A-Za-z0-9_]`` — a column containing a space (or any other
+    such character) silently truncates the parameter name at that point
+    (e.g. ``:Last price`` is parsed as parameter ``Last`` followed by the
+    literal SQL text ``price``), which then fails at execute time because
+    the row dict has no ``"Last"`` key. Suffixing with the column's index
+    keeps names unique even if two columns sanitize to the same string.
+    """
+    return {c: f"p{i}_{re.sub(r'[^A-Za-z0-9_]', '_', c)}" for i, c in enumerate(columns)}
+
+
+def _remap_rows(rows: list[dict], columns: list[str], param_names: dict[str, str]) -> list[dict]:
+    """Rekey each row dict from real column names to their safe bind-parameter
+    names (see ``_safe_param_names``) before handing it to ``conn.execute``."""
+    return [{param_names[c]: row[c] for c in columns} for row in rows]
+
+
 def _build_insert_sql(table: str, columns: list[str], spec: CopySpec, engine) -> str:
     """Build the dialect-aware INSERT statement for one batch (excluding the
     MSSQL ``skip`` path, which has no single-statement shape — see
     ``_insert_batch_mssql_skip``)."""
     preparer = engine.dialect.identifier_preparer
+    param_names = _safe_param_names(columns)
     cols = ", ".join(preparer.quote(c) for c in columns)
-    placeholders = ", ".join(f":{c}" for c in columns)
+    placeholders = ", ".join(f":{param_names[c]}" for c in columns)
     dialect = engine.dialect.name
     base_sql = f"INSERT INTO {_quote_ident(table, engine)} ({cols}) VALUES ({placeholders})"
 
@@ -401,7 +423,8 @@ def _execute_insert(conn, table: str, columns: list[str], rows: list[dict], spec
     """Execute the INSERT for one batch on an already-open connection; the
     caller controls commit/rollback. Not used for the MSSQL ``skip`` path."""
     sql = _build_insert_sql(table, columns, spec, engine)
-    r = conn.execute(text(sql), rows)
+    safe_rows = _remap_rows(rows, columns, _safe_param_names(columns))
+    r = conn.execute(text(sql), safe_rows)
     # `rowcount` for `executemany` is the number of rows actually written.
     # For `INSERT IGNORE` / `ON CONFLICT DO NOTHING` it excludes the
     # duplicates the driver skipped; for plain `INSERT` it equals
@@ -503,18 +526,20 @@ def _insert_batch_mssql_skip(
     """MSSQL has no native ON CONFLICT; emulate skip by inserting rows one at a
     time guarded by NOT EXISTS on the columns. Slow but correct."""
     preparer = trg.engine.dialect.identifier_preparer
+    param_names = _safe_param_names(columns)
     cols = ", ".join(preparer.quote(c) for c in columns)
-    vals = ", ".join(f":{c}" for c in columns)
+    vals = ", ".join(f":{param_names[c]}" for c in columns)
     table_q = _quote_ident(table, trg.engine)
-    not_exists_cols = " AND ".join(f"s.{c}=t.{c}" for c in columns)
+    not_exists_cols = " AND ".join(f"t.{preparer.quote(c)} = :{param_names[c]}" for c in columns)
     sql = (
         f"INSERT INTO {table_q} ({cols}) "
         f"SELECT {vals} WHERE NOT EXISTS "
         f"(SELECT 1 FROM {table_q} t WHERE {not_exists_cols})"
     )
     inserted = 0
+    safe_rows = _remap_rows(rows, columns, param_names)
     with trg.engine.begin() as c:
-        for row in rows:
+        for row in safe_rows:
             r = c.execute(text(sql), row)
             inserted += r.rowcount or 0
     return inserted
