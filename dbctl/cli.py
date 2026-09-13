@@ -1091,18 +1091,18 @@ def _scan_profile(args: list[str]) -> str | None:
     occurrence wins (matches click's own last-value-wins parsing).
     """
     prof = None
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a == "--":
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
             break
-        if a == "--profile" and i + 1 < len(args):
-            prof = args[i + 1]
-            i += 2
+        if arg == "--profile" and index + 1 < len(args):
+            prof = args[index + 1]
+            index += 2
             continue
-        if a.startswith("--profile="):
-            prof = a.split("=", 1)[1]
-        i += 1
+        if arg.startswith("--profile="):
+            prof = arg.split("=", 1)[1]
+        index += 1
     return prof
 
 
@@ -1631,22 +1631,14 @@ def mcp_serve_cmd(ctx, allow_write, actor):
     \b
     Example client config (Claude / opencode / Cursor):
       {"mcpServers": {"dbctl": {"command": "dbctl", "args": ["mcp", "serve"]}}}
-
-    \b
-    Install the optional dependency first:
-      pip install 'dbctl[mcp]'
     """
-    from dbctl.mcp_server import McpNotInstalled, build_server
+    from dbctl.mcp_server import build_server
 
-    try:
-        server = build_server(
-            profile=ctx.obj.get("profile"),
-            allow_write=allow_write,
-            actor=actor,
-        )
-    except McpNotInstalled as e:
-        err_console.print(f"[red]{e}[/red]")
-        raise SystemExit(2)
+    server = build_server(
+        profile=ctx.obj.get("profile"),
+        allow_write=allow_write,
+        actor=actor,
+    )
     server.run()
 
 

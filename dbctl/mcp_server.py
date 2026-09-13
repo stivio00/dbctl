@@ -42,14 +42,6 @@ MAX_ROWS_DEFAULT = 50
 MAX_ROWS_CAP = 1000
 
 
-class McpNotInstalled(Exception):
-    def __str__(self) -> str:
-        return (
-            "the 'mcp' package is required for `dbctl mcp serve`. "
-            "install it with: pip install 'dbctl[mcp]'  (or: uv pip install mcp)"
-        )
-
-
 def _load_registries(profile: str | None) -> tuple[dict[str, Connection], dict[str, Operation]]:
     """Loader-resilient registries without any console output (a stdio MCP
     server must keep stdout clean for the protocol stream)."""
@@ -545,12 +537,7 @@ def build_server(
     actor: str = "mcp",
 ) -> Any:
     """Assemble the MCP server (FastMCP in mcp 1.x, MCPServer in 2.x —
-    same decorator API). Raises McpNotInstalled when the optional ``mcp``
-    dependency is missing."""
-    try:
-        import mcp  # noqa: F401 - presence check for the friendly error
-    except ImportError as e:  # pragma: no cover - depends on optional install
-        raise McpNotInstalled() from e
+    same decorator API)."""
     try:
         from mcp.server.fastmcp import FastMCP as ServerCls  # mcp 1.x
     except ImportError:
@@ -652,7 +639,6 @@ def build_server(
 
 
 __all__ = [
-    "McpNotInstalled",
     "build_server",
     "run_single",
     "health_connection",

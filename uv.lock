@@ -359,12 +359,13 @@ wheels = [
 
 [[package]]
 name = "dbctl"
-version = "0.8.1"
+version = "0.8.2"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
+    { name = "mcp" },
     { name = "oracledb" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -378,15 +379,11 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mcp" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-mcp = [
-    { name = "mcp" },
 ]
 
 [package.metadata]
@@ -394,8 +391,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "duckdb", specifier = ">=1" },
     { name = "duckdb-engine", specifier = ">=0.13" },
-    { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.2" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2" },
+    { name = "mcp", specifier = ">=1.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "oracledb", specifier = ">=2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
@@ -411,7 +407,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2" },
     { name = "textual", specifier = ">=0.60" },
 ]
-provides-extras = ["mcp", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "duckdb"

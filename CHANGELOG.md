@@ -5,6 +5,40 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-09-13
+
+### Changed
+
+- **`mcp` is now a core dependency** (was the optional `dbctl[mcp]`
+  extra). `dbctl mcp serve` works out of the box; the not-installed error
+  path (`McpNotInstalled`) is gone. Both the `mcp` 1.x and 2.x SDK lines
+  remain supported.
+- Readability pass on the 0.8.1 dynamic-resolution code: single-letter
+  loop variables in `_scan_profile` (cli.py) and `_ctx_profile`
+  (runtime.py) renamed to `index`/`arg`/`node`.
+
+### Added
+
+- **[`docs/mcp.md`](docs/mcp.md)** — full MCP server reference: every
+  tool with its arguments and response shapes, client setup for opencode
+  / Claude Desktop / Cursor / generic stdio, the safety model, error
+  exit-code semantics, and the operation-authoring loop
+  (`get_schema` → guide → `draft_operation` → human review → activate).
+- CI actions bumped to their Node 24 majors (checkout v5, setup-uv v7,
+  upload/download-artifact v7, codecov v7, gh-release v3) — clears the
+  "Node 20 is being deprecated" runner warnings.
+
+### Verified
+
+- End-to-end MCP session over real stdio against the docker fleet
+  (mcp 2.2.0): tool listing, secret-free catalogs, live postgres schema
+  introspection, authoring guide, LLM-authored `draft_operation` →
+  draft file (never active), DML dry-run → `--allow-write` apply →
+  verified row change, and apply **blocked** on a read-only server.
+- CLI ops re-verified against the fleet: fetch, DML apply, multi-DB
+  diff (`user-count pg my`), `doctor --only db|deps`, `doctor --conn`,
+  and `ask` routing.
+
 ## [0.8.1] — 2026-09-13
 
 ### Fixed

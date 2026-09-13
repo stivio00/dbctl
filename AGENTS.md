@@ -47,7 +47,7 @@ If you change `pyproject.toml` dependencies, `uv lock` and commit the updated lo
 | `catalog.py` | Secret-free registry summaries (shared by context/ask/mcp) |
 | `context.py` | `dbctl context` — markdown LLM context pack |
 | `ask.py` | `dbctl ask` — natural-language router (offline heuristics + optional LLM); never writes SQL, only picks declared ops |
-| `mcp_server.py` | `dbctl mcp serve` — MCP tools over the registries (optional `mcp` extra; supports mcp 1.x and 2.x): catalogs, inspector schema with dialect authoring guide, `draft_operation` → `<config>/drafts/` (never active), safety-gated `run_operation` |
+| `mcp_server.py` | `dbctl mcp serve` — MCP tools over the registries (`mcp` is a core dependency; supports mcp 1.x and 2.x): catalogs, inspector schema with dialect authoring guide, `draft_operation` → `<config>/drafts/` (never active), safety-gated `run_operation` |
 
 ## Invariants — do not break these
 
@@ -78,7 +78,7 @@ If you change `pyproject.toml` dependencies, `uv lock` and commit the updated lo
 ## Testing
 
 - `tests/` runs on in-memory SQLite only — no docker, no network, no live tunnels.
-- MCP tests import the real `mcp` package (dev extra) and call `build_server().call_tool` directly.
+- MCP tests import the real `mcp` package (core dep) and call `build_server().call_tool` directly.
 - `dbctl ask` tests monkeypatch `ask._chat` for the LLM path; heuristic path is pure logic.
 - To point a test CLI run at a config: `monkeypatch.setenv("HOME", tmp_path)` and write
   `tmp_path/.dbctl/{connections,operations}.yaml` (registry paths resolve via `Path.home()`).

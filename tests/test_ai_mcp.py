@@ -11,11 +11,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-import pytest
-
-pytest.importorskip("mcp", reason="optional 'mcp' extra not installed")
-
-from dbctl.mcp_server import build_server, draft_operation_yaml, schema_payload  # noqa: E402
+from dbctl.mcp_server import build_server, draft_operation_yaml, schema_payload
 
 
 async def _call(srv: Any, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:

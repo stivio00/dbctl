@@ -33,3 +33,7 @@ htmlcov/
 # ignore the per-user history/profile data that dbctl writes at runtime)
 .dbctl/history.jsonl
 .dbctl/profiles/
+.dbctl/drafts/
+
+# opencode project config is per-machine (absolute profile path); see docs/mcp.md
+.opencode/

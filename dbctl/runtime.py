@@ -40,14 +40,14 @@ def _ctx_profile(ctx: click.Context) -> str | None:
     so ``dbctl --profile X pg list-users`` resolves registries from X rather
     than silently falling back to the default ``~/.dbctl``.
     """
-    c: click.Context | None = ctx
-    while c is not None:
-        prof = c.params.get("profile")
+    node: click.Context | None = ctx
+    while node is not None:
+        prof = node.params.get("profile")
         if prof:
             return str(prof)
-        if c.obj and c.obj.get("profile"):
-            return str(c.obj["profile"])
-        c = c.parent
+        if node.obj and node.obj.get("profile"):
+            return str(node.obj["profile"])
+        node = node.parent
     return None
 
 

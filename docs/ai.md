@@ -62,8 +62,7 @@ is audited.
 ## `dbctl mcp serve` — the MCP server
 
 ```bash
-pip install 'dbctl[mcp]'      # optional extra
-dbctl mcp serve               # stdio server; register it with a client
+how dbctl mcp serve               # stdio server; register it with a client
 dbctl mcp serve --allow-write # opt in to commits (still gated, see below)
 dbctl mcp serve --actor claude
 ```
@@ -125,3 +124,6 @@ Read-only connections and `allowed_operations` whitelists apply in
 addition. Every run — including dry-runs and blocked attempts — is
 appended to `~/.dbctl/history.jsonl` with secret-typed parameters
 redacted.
+
+Full tool reference, client setup (opencode / Claude / Cursor), and the
+operation-authoring loop: [`docs/mcp.md`](mcp.md).

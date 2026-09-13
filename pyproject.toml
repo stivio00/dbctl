@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbctl"
-version = "0.8.1"
+version = "0.8.2"
 description = "Generic CLI to monitor, control, and administer multiple databases via SSM, SSH, or direct connection."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,19 +35,16 @@ dependencies = [
   "duckdb>=1",
   "duckdb-engine>=0.13",
   "textual>=0.60",
+  "mcp>=1.2",
 ]
 
 [project.optional-dependencies]
-mcp = [
-  "mcp>=1.2",
-]
 dev = [
   "pytest>=8",
   "pytest-cov>=5",
   "pytest-asyncio>=0.24",
   "ruff>=0.5",
   "mypy>=1.10",
-  "mcp>=1.2",
 ]
 
 [project.scripts]

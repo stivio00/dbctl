@@ -386,7 +386,6 @@ dbctl context pg                 # + live schema: tables, keys, FK links, indexe
 dbctl ask "top 5 users on pg"    # natural-language → declared operation, normal safety path
 dbctl ask "add user zelda with 100 credits on pg" --apply
 
-pip install 'dbctl[mcp]'
 dbctl mcp serve                  # MCP tools for Claude / opencode / Cursor / ...
 dbctl mcp serve --allow-write    # opt in to DML commits (dry-run + gates still apply)
 ```
@@ -400,7 +399,10 @@ Drafts are validated and saved under `~/.dbctl/drafts/` for human review;
 they never activate on their own. Credentials never appear in any pack,
 prompt, or tool payload, and every execution path audits like the CLI.
 
-See [`docs/ai.md`](docs/ai.md) for the full reference.
+See [`docs/ai.md`](docs/ai.md) for the full reference, and
+[`docs/mcp.md`](docs/mcp.md) for the MCP server — every tool, client setup
+(opencode / Claude / Cursor), the safety model, and the operation-authoring
+loop.
 
 ## Shell completion
 
@@ -445,7 +447,7 @@ dbctl/
     ├── catalog.py          # secret-free registry summaries (shared by context/ask/mcp)
     ├── context.py          # `dbctl context` — markdown LLM context pack
     ├── ask.py              # `dbctl ask` — natural-language router (offline + optional LLM)
-    ├── mcp_server.py       # `dbctl mcp serve` — MCP tools (optional 'mcp' extra)
+    ├── mcp_server.py       # `dbctl mcp serve` — MCP tools (`mcp` is a core dep)
     └── ui/                 # Textual TUI (`dbctl ui`)
         ├── app.py          # DbctlApp: connection tree + tabbed workspace
         ├── session.py      # per-connection tunnel+engine kept open across tab-runs
