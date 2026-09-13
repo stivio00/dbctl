@@ -1,0 +1,67 @@
+name: Docs
+
+# Build the MkDocs site and publish it to GitHub Pages on every push to
+# main that touches a docs input. Requires the one-time manual step:
+# repo Settings -> Pages -> Source: "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer commit replaces the in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------- #
+  # build — mkdocs build (strict: broken links fail the job) + artifact
+  # ----------------------------------------------------------------------- #
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Set up Python
+        run: uv python install 3.13
+      - name: Build site
+        # Docs deps are not project dependencies — pull them via --with
+        # instead of adding them to pyproject.toml / uv.lock.
+        run: >
+          uv run --no-project
+          --with mkdocs-material
+          --with mkdocs-include-markdown-plugin
+          mkdocs build --strict --site-dir _site
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # ----------------------------------------------------------------------- #
+  # deploy — publish the artifact to the github-pages environment
+  # ----------------------------------------------------------------------- #
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

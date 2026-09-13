@@ -177,7 +177,7 @@ ui` is available right after a normal install, no separate step.
 
 ## Project layout
 
-See the `dbctl/ui/` tree in the main [`README.md`](../README.md#project-layout)
+See the `dbctl/ui/` tree in the main [`README.md`](https://github.com/stivio00/dbctl#project-layout)
 for where each piece of the TUI lives (`app.py`, `connection_tree.py`,
 `grouping.py`, `schema.py`, `editor_tab.py`, `operation_tab.py`,
 `session.py`, `sql_templates.py`, `screens.py`, `splitter.py`, `tabs.py`,

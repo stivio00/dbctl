@@ -713,7 +713,7 @@ operation, and connected to a real RDS Postgres through an SSM bastion.
   parameter type, and the full safety check matrix.
 - [`DESIGN.md`](DESIGN.md) — why the CLI is dynamic, why confirms happen
   before transactions, why placeholder rewriting is regex-based.
-- [`CHANGELOG.md`](../CHANGELOG.md) — what's in 0.6.0 (multi-DB copy/sync/
+- [`CHANGELOG.md`](https://github.com/stivio00/dbctl/blob/main/CHANGELOG.md) — what's in 0.6.0 (multi-DB copy/sync/
   validate/replay + table_counts + operation-first CLI) and what's planned
   for 0.7 (bidirectional sync, identifier interpolation, multi-statement
   scripts).

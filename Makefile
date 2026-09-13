@@ -132,6 +132,19 @@ publish: build  ## Upload wheel+sdist to PyPI (run after tagging; needs UV_PUBLI
 	$(UV) publish dist/*
 
 # --------------------------------------------------------------------------- #
+# Docs (MkDocs Material -> GitHub Pages; workflow in .github/workflows/docs.yml)
+# --------------------------------------------------------------------------- #
+DOCS_DEPS := --with mkdocs-material --with mkdocs-include-markdown-plugin
+
+.PHONY: docs
+docs:  ## Build the docs site into site/ (strict: broken links fail)
+	$(UV) run --no-project $(DOCS_DEPS) mkdocs build --strict
+
+.PHONY: docs-serve
+docs-serve:  ## Live-preview the docs site at http://127.0.0.1:8000
+	$(UV) run --no-project $(DOCS_DEPS) mkdocs serve
+
+# --------------------------------------------------------------------------- #
 # Sample config install
 # --------------------------------------------------------------------------- #
 .PHONY: install-config

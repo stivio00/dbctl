@@ -21,6 +21,9 @@ env/
 htmlcov/
 .tox/
 
+# mkdocs build output (see mkdocs.yml; the Pages workflow builds in CI)
+site/
+
 # editors / OS
 .idea/
 .vscode/
