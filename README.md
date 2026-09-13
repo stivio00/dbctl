@@ -200,7 +200,8 @@ dbctl tunnel list                              # list all connections + tunnel i
 ~/.dbctl/
 ├── connections.yaml     # named connections (ssm / ssh / direct)
 ├── operations.yaml      # parameterised SQL operations (single + multi)
-└── history.jsonl        # audit log (one JSON event per run)
+├── history.jsonl        # audit log (one JSON event per run)
+└── drafts/              # MCP-drafted operations awaiting human review
 ~/.dbctl/profiles/<name>/ # switch config dir with --profile <name>
 ```
 
@@ -372,6 +373,33 @@ dbctl ui
 See [`docs/tui.md`](docs/tui.md) for the full keybinding reference and
 per-dialect SQL details (row-limit clause, identifier quoting).
 
+## AI surfaces (`dbctl context` / `ask` / `mcp serve`)
+
+Three surfaces let an LLM *operate* the fleet through dbctl's declared,
+safety-gated operations — instead of giving it a raw connection string:
+
+```bash
+dbctl context                    # markdown context pack (catalogs + SQL) for any chat
+dbctl context pg                 # + live schema: tables, keys, FK links, indexes, views
+dbctl ask "top 5 users on pg"    # natural-language → declared operation, normal safety path
+dbctl ask "add user zelda with 100 credits on pg" --apply
+
+pip install 'dbctl[mcp]'
+dbctl mcp serve                  # MCP tools for Claude / opencode / Cursor / ...
+dbctl mcp serve --allow-write    # opt in to DML commits (dry-run + gates still apply)
+```
+
+The MCP server's `get_schema` tool exposes the SQLAlchemy inspector view
+of a connection (dialect, tables, columns, primary keys, foreign-key
+links, indexes, views) together with an authoring guide — `$name`
+placeholder rules, an entry shape, and dialect-specific SQL hints — so an
+agent can draft **new** operations for a database it has never seen.
+Drafts are validated and saved under `~/.dbctl/drafts/` for human review;
+they never activate on their own. Credentials never appear in any pack,
+prompt, or tool payload, and every execution path audits like the CLI.
+
+See [`docs/ai.md`](docs/ai.md) for the full reference.
+
 ## Shell completion
 
 ```bash
@@ -397,6 +425,7 @@ dbctl/
 │   ├── operations.md       # operations.yaml reference
 │   ├── execute.md          # dbctl execute (ad-hoc SQL) reference
 │   ├── tui.md              # dbctl ui reference (keybindings, dialect SQL)
+│   ├── ai.md               # context / ask / mcp surfaces for LLM agents
 │   └── DESIGN.md           # architecture and design decisions
 └── dbctl/
     ├── cli.py              # dynamic groups + per-op Click commands
@@ -411,6 +440,10 @@ dbctl/
     ├── audit.py            # history.jsonl
     ├── runtime.py          # opened_conn() ctx-mgr (tunnel+engine+healthcheck)
     ├── init.py             # dbctl init wizard
+    ├── catalog.py          # secret-free registry summaries (shared by context/ask/mcp)
+    ├── context.py          # `dbctl context` — markdown LLM context pack
+    ├── ask.py              # `dbctl ask` — natural-language router (offline + optional LLM)
+    ├── mcp_server.py       # `dbctl mcp serve` — MCP tools (optional 'mcp' extra)
     └── ui/                 # Textual TUI (`dbctl ui`)
         ├── app.py          # DbctlApp: connection tree + tabbed workspace
         ├── session.py      # per-connection tunnel+engine kept open across tab-runs
@@ -433,7 +466,7 @@ dbctl/
 uv sync --extra dev
 make help            # list all Makefile targets
 make check           # lint + unit tests (the pre-commit gate)
-make test            # unit tests (~270 tests, sqlite-backed, no docker)
+make test            # unit tests (~355 tests, sqlite-backed, no docker)
 make typecheck       # mypy strict (pre-existing debt; non-blocking)
 make smoke           # docker compose up + dbctl doctor against the fleet
 make build           # wheel + sdist via uv

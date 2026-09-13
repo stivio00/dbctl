@@ -5,6 +5,78 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-09-13
+
+### Added
+
+- **AI surfaces** — three LLM-facing surfaces sharing one secret-free
+  catalog (`dbctl/catalog.py`) and the existing safety/audit plumbing
+  (full reference: [`docs/ai.md`](docs/ai.md)):
+
+  - **`dbctl context`** — emit a markdown context pack for any chat:
+    the connections + operations catalogs (with SQL), or with a
+    connection name also the live SQLAlchemy-inspector schema (tables,
+    columns, primary keys, foreign-key links, indexes, views, dialect).
+    `--no-sql` omits SQL bodies, `-o FILE` writes to a file. Credentials
+    never appear.
+  - **`dbctl ask`** — route a natural-language request to one *declared*
+    operation and run it through the normal safety path (plan preview
+    with masked params + resolved SQL, prompted missing params, DML
+    dry-run until `--apply`, everything audited). The router never
+    writes SQL. Offline heuristics by default (name/description/param
+    token + fuzzy scoring, connection-mention inference with
+    word-boundary matching so `pg` no longer collides with `pg-ro`);
+    optional LLM routing via `DBCTL_LLM_PROVIDER`
+    (`anthropic`|`openai`), `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`,
+    `DBCTL_LLM_MODEL`, `DBCTL_LLM_BASE_URL`, `DBCTL_LLM_TIMEOUT` —
+    stdlib-only, auto-falls back to heuristics unless `--llm` forced.
+    `--conn`/`--op` force the target.
+  - **`dbctl mcp serve`** — expose the registries as MCP tools over
+    stdio (optional `mcp` extra; supports mcp 1.x and 2.x). Six tools:
+    `list_connections`, `list_operations`, `get_schema`,
+    `draft_operation`, `run_operation`, `health`. Agent-facing write
+    policy is stricter than the CLI: any DML is a dry-run preview unless
+    `apply=true` **and** the server runs with `--allow-write`;
+    `read_only` + `allowed_operations` still apply; every run (incl.
+    dry-runs and blocked attempts) is audited with `--actor`
+    (default `mcp`). Error payloads carry the CLI's stable `exit_code`
+    semantics. The stdio server keeps stdout clean for the protocol
+    stream.
+
+- **MCP schema introspection + LLM operation authoring** — `get_schema`
+  returns the SQLAlchemy inspector view of a connection (dialect: db
+  type, driver, server version; tables with columns, primary keys,
+  foreign-key links and indexes; views; `table=` focus filter,
+  `max_tables` cap) **plus an `authoring` guide** so an agent can draft
+  new operations for a database it has never seen: the `$name`
+  placeholder rule, the mode vocabulary, an example `operations.yaml`
+  entry, and dialect-specific SQL hints (pagination, upsert syntax,
+  RETURNING equivalents, date arithmetic) for postgresql / mysql /
+  sqlite / mssql. `draft_operation` validates the authored YAML against
+  the pydantic `Operation` schema (`extra="forbid"` catches typos),
+  cross-checks `$placeholders` against declared parameters (undeclared
+  rejected, unused warned), and persists it under
+  `~/.dbctl/drafts/<name>.yaml` — drafts never activate until a human
+  moves them into `operations.yaml`. Accepts both the bare
+  `name: {fields}` form and an `operations:` wrapper (nested or null
+  header with unindented body).
+
+- `dbctl/ui/schema.py` — new `list_foreign_keys()` inspector wrapper
+  (shared by the TUI schema browser and the MCP/context schema sections).
+
+### Fixed
+
+- MCP `health` tool now reports `exit_code: 5` on healthcheck failure,
+  matching the CLI's exit-code semantics promised in tool payloads.
+
+### Internal
+
+- New tests: `tests/test_ai_ask.py`, `tests/test_ai_catalog_context.py`,
+  `tests/test_ai_mcp.py` (+ shared `tests/conftest.py` sqlite fixture)
+  — in-memory SQLite only, real `mcp` package from the dev extra, LLM
+  path monkeypatched. Suite is now 355 tests.
+- `AGENTS.md` added at the repo root for AI coding agents.
+
 ## [0.7.7] — 2026-08-10
 
 ### Fixed

@@ -1023,7 +1023,9 @@ def _aliases(conns):
 def _root_list(ctx: click.Context) -> list[str]:
     conns, ops = registries(ctx)
     static = [
+        "ask",
         "connections",
+        "context",
         "operations",
         "status",
         "doctor",
@@ -1032,6 +1034,7 @@ def _root_list(ctx: click.Context) -> list[str]:
         "tunnel",
         "ui",
         "execute",
+        "mcp",
     ]
     # multi-op operation-first top-level commands + deprecated verb-first groups
     multi_ops = {n for n, o in ops.items() if o.scope.value == "multi"}
@@ -1044,7 +1047,9 @@ def _root_list(ctx: click.Context) -> list[str]:
 
 def _root_get(ctx: click.Context, name: str):
     static = {
+        "ask": ask_cmd,
         "connections": connections_cmd,
+        "context": context_cmd,
         "operations": operations_cmd,
         "status": status_cmd,
         "doctor": doctor_cmd,
@@ -1053,6 +1058,7 @@ def _root_get(ctx: click.Context, name: str):
         "tunnel": tunnel_cmd,
         "ui": ui_cmd,
         "execute": execute_cmd,
+        "mcp": mcp_cmd,
     }
     if name in static:
         return static[name]
@@ -1350,6 +1356,214 @@ def ui_cmd(ctx):
     from dbctl.ui.app import DbctlApp
 
     DbctlApp(profile=ctx.obj.get("profile")).run()
+
+
+# --------------------------------------------------------------------------- #
+# AI-facing commands: context pack, natural-language router, MCP server
+# --------------------------------------------------------------------------- #
+@click.command("context")
+@click.argument("name", required=False)
+@click.option(
+    "--sql/--no-sql",
+    "with_sql",
+    default=True,
+    help="Include each operation's SQL (default: on).",
+)
+@click.option(
+    "-o",
+    "--output",
+    "out_path",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help="Write the pack to this file instead of stdout.",
+)
+@click.pass_context
+def context_cmd(ctx, name, with_sql, out_path):
+    """Emit an LLM-ready markdown context pack (catalogs, schema, SQL).
+
+    With no argument: the connections + operations catalogs — everything
+    an assistant needs to drive dbctl. With a connection name: also
+    introspect that connection's live schema (tables, columns, keys) and
+    include its declared info queries. Credentials never appear.
+    """
+    from dbctl.context import build_context
+
+    conns, ops = registries(ctx)
+    if name:
+        from dbctl.connections import resolve
+
+        try:
+            canonical, conn = resolve(name, conns)
+        except KeyError as e:
+            err_console.print(f"[red]{e}[/red]")
+            raise SystemExit(2)
+        with opened_conn(ctx, canonical) as (_n, _c, stub):
+            md = build_context(
+                conns,
+                ops,
+                conn_name=canonical,
+                conn=conn,
+                engine=stub.engine,
+                include_sql=with_sql,
+            )
+    else:
+        md = build_context(conns, ops, include_sql=with_sql)
+
+    if out_path:
+        from pathlib import Path
+
+        Path(out_path).write_text(md, encoding="utf-8")
+        console.print(f"[green]wrote[/green] {out_path} ({len(md)} bytes)")
+    else:
+        click.echo(md)
+
+
+@click.command("ask")
+@click.argument("question", nargs=-1, required=True)
+@click.option("--conn", "prefer_conn", default=None, metavar="NAME", help="Force the target connection.")
+@click.option("--op", "prefer_op", default=None, metavar="NAME", help="Force the operation (skips routing).")
+@click.option(
+    "--llm/--no-llm",
+    "use_llm",
+    default=None,
+    help=(
+        "Route via a configured LLM API (--llm) or offline heuristics (--no-llm); "
+        "default: LLM when DBCTL_LLM_* / *_API_KEY env is set."
+    ),
+)
+@click.option("--apply", is_flag=True, help="Commit DML (default dry-runs when confirm).")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.option("--show-sql", is_flag=True, help="Print resolved SQL before executing.")
+@click.pass_context
+def ask_cmd(ctx, question, prefer_conn, prefer_op, use_llm, apply, yes, show_sql):
+    """Route a natural-language request to a declared operation, then run it.
+
+    The router only picks from operations.yaml and fills declared params —
+    it never writes SQL — and execution goes through the normal safety
+    path (dry-run by default, --apply to commit, everything audited).
+
+    \b
+    Examples:
+      dbctl ask "top 5 users on pg"
+      dbctl ask "find user 'alice' on pg"
+      dbctl ask "add user zelda with 100 credits" --apply
+
+    \b
+    LLM routing (optional) is configured via DBCTL_LLM_PROVIDER
+    (anthropic|openai), ANTHROPIC_API_KEY / OPENAI_API_KEY,
+    DBCTL_LLM_MODEL, DBCTL_LLM_BASE_URL (any OpenAI-compatible endpoint).
+    Without it, offline heuristics route by name/description/param match.
+    """
+    from dbctl.ask import AskError, ensure_allowed, plan_from_question
+
+    question = " ".join(question).strip()
+    conns, ops = registries(ctx)
+    try:
+        plan = plan_from_question(
+            question,
+            conns,
+            ops,
+            prefer_conn=prefer_conn,
+            prefer_op=prefer_op,
+            use_llm=use_llm,
+        )
+    except AskError as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+
+    from dbctl.catalog import redact_params
+    from dbctl.connections import resolve as resolve_conn
+    from dbctl.execute import format_sql
+
+    op = ops[plan.operation]
+
+    if plan.connection:
+        chosen = plan.connection
+    elif sys.stdin.isatty() and conns:
+        chosen = click.prompt("connection", type=click.Choice(sorted(conns)))
+    else:
+        err_console.print(
+            f"[red]ambiguous connection; pass --conn (available: {', '.join(sorted(conns))})[/red]"
+        )
+        raise SystemExit(2)
+    try:
+        canonical, conn = resolve_conn(chosen, conns)
+    except KeyError as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    try:
+        ensure_allowed(conn, plan.operation)
+    except AskError as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+
+    params = _prompt_missing(op, dict(plan.params))
+
+    console.print(
+        f"[cyan]plan[/cyan] [{plan.source}] {canonical} :: {plan.operation} {redact_params(op, params)}"
+    )
+    if plan.rationale:
+        console.print(f"[dim]why: {plan.rationale}[/dim]")
+    console.print(f"[cyan]resolved SQL:[/cyan]\n{format_sql(op, params)}")
+
+    _execute_single(
+        ctx,
+        canonical,
+        conn,
+        plan.operation,
+        op,
+        params,
+        apply=apply,
+        yes=yes,
+        show_sql=show_sql,
+        fmt=op.output.value,
+    )
+
+
+@main.group("mcp")
+def mcp_cmd():
+    """Expose dbctl to AI agents as an MCP server (requires the 'mcp' extra).
+
+    \b
+    Tools: list_connections, list_operations, get_schema, draft_operation,
+    run_operation, health. DML runs dry-run by default; `serve
+    --allow-write` is required for run_operation apply=true to commit.
+    get_schema + draft_operation let an agent inspect a database and
+    author NEW operations as reviewable drafts. Every run is audited.
+    """
+
+
+@mcp_cmd.command("serve")
+@click.option(
+    "--allow-write",
+    is_flag=True,
+    help="Permit run_operation apply=true to commit DML (safety gates still apply).",
+)
+@click.option("--actor", default="mcp", show_default=True, help="Actor recorded in the audit log.")
+@click.pass_context
+def mcp_serve_cmd(ctx, allow_write, actor):
+    """Run the stdio MCP server (register it with an MCP client).
+
+    \b
+    Example client config (Claude / opencode / Cursor):
+      {"mcpServers": {"dbctl": {"command": "dbctl", "args": ["mcp", "serve"]}}}
+
+    \b
+    Install the optional dependency first:
+      pip install 'dbctl[mcp]'
+    """
+    from dbctl.mcp_server import McpNotInstalled, build_server
+
+    try:
+        server = build_server(
+            profile=ctx.obj.get("profile"),
+            allow_write=allow_write,
+            actor=actor,
+        )
+    except McpNotInstalled as e:
+        err_console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    server.run()
 
 
 # --------------------------------------------------------------------------- #

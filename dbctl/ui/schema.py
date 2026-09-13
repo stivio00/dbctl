@@ -31,6 +31,39 @@ class IndexInfo:
     unique: bool = False
 
 
+@dataclass(frozen=True)
+class ForeignKeyInfo:
+    """One declared FK link: ``columns`` on this table → ``ref_table(ref_columns)``."""
+
+    columns: list[str] = field(default_factory=list)
+    ref_table: str = ""
+    ref_columns: list[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        return f"({', '.join(self.columns)}) -> {self.ref_table}({', '.join(self.ref_columns)})"
+
+
+def list_foreign_keys(engine: Engine, table: str, schema: str | None = None) -> list[ForeignKeyInfo]:
+    """Declared foreign keys via ``inspect()`` — read-only catalog lookup."""
+    insp = inspect(engine)
+    try:
+        fks = insp.get_foreign_keys(table, schema=schema)
+    except NotImplementedError:
+        return []
+    out: list[ForeignKeyInfo] = []
+    for fk in fks:
+        cols = [c for c in (fk.get("constrained_columns") or []) if c is not None]
+        ref_cols = [c for c in (fk.get("referred_columns") or []) if c is not None]
+        out.append(
+            ForeignKeyInfo(
+                columns=cols,
+                ref_table=str(fk.get("referred_table") or ""),
+                ref_columns=ref_cols,
+            )
+        )
+    return out
+
+
 def list_schemas(engine: Engine) -> list[str]:
     insp = inspect(engine)
     try:
