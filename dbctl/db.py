@@ -80,8 +80,12 @@ def _connect_args(conn: Connection, timeout: float) -> dict:
     """Driver-specific connect-time knobs (mainly connect_timeout)."""
     args: dict = {}
     driver = driver_name(conn)
-    if driver.startswith(("postgresql", "mysql", "mariadb", "oracle")):
+    if driver.startswith(("postgresql", "mysql", "mariadb")):
         args["connect_timeout"] = int(max(1, timeout))
+    elif driver.startswith("oracle"):
+        # python-oracledb (thin and thick mode) spells it tcp_connect_timeout;
+        # `connect_timeout` raises TypeError: unexpected keyword argument
+        args["tcp_connect_timeout"] = int(max(1, timeout))
     # sqlite + duckdb are file-based — no connect_timeout; SQLAlchemy
     # ignores it anyway, but we skip it so we don't pass an unknown kwarg
     # to the underlying C library.
@@ -156,7 +160,9 @@ def _check_driver_available(driver: str) -> None:
         "mssql+pyodbc": "pyodbc",
         "oracle+oracledb": "oracledb",
         "sqlite": "sqlite3",  # stdlib — always available
-        "duckdb": "duckdb",
+        # the SQLAlchemy dialect for duckdb ships in the separate
+        # `duckdb-engine` package, not in the `duckdb` driver itself
+        "duckdb": "duckdb_engine",
     }
     pkg = module_map.get(driver)
     if pkg is None:

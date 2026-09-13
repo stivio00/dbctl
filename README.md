@@ -73,6 +73,8 @@ dbctl pg info row_counts
 dbctl diff user-count pg my
 dbctl diff compare-credits pg my Daily
 dbctl doctor
+dbctl doctor --only deps                     # just the optional CLI tool report
+dbctl doctor --conn pg                       # healthcheck one connection only
 dbctl history list
 ```
 

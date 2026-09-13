@@ -135,22 +135,60 @@ class DbctlApp(App[None]):
     def _open_table_tab(self, message: TableActivated) -> None:
         conn = self.connections[message.conn_name]
         target = qualified_table(conn, message.table, message.schema_name)
-        self.open_sql_tab(message.conn_name, sql=default_select(conn, target))
+        label = message.table if message.schema_name is None else f"{message.schema_name}.{message.table}"
+        self.open_sql_tab(message.conn_name, sql=default_select(conn, target), target=target, label=label)
 
     def _next_tab_id(self) -> str:
         self._tab_seq += 1
         return f"tab-{self._tab_seq}"
 
-    def open_sql_tab(self, conn_name: str, *, sql: str | None = None) -> None:
+    def _focus_existing_pane(self, pane_cls: type, wants) -> bool:
+        """Activate the tab of an already-open pane instead of opening a
+        duplicate (same connection + target). Returns True when an
+        existing tab was focused."""
         tabbed = self.query_one(TabbedContent)
+        for tab_pane in tabbed.query(TabPane):
+            with contextlib.suppress(NoMatches):
+                if wants(tab_pane.query_one(pane_cls)):
+                    tabbed.active = tab_pane.id
+                    return True
+        return False
+
+    def open_sql_tab(
+        self,
+        conn_name: str,
+        *,
+        sql: str | None = None,
+        target: str | None = None,
+        label: str | None = None,
+        reuse: bool = True,
+    ) -> None:
+        """Open (or focus, when an identical tab is already open) a SQL tab.
+
+        ``target`` is the schema-qualified table a tree activation opened
+        the tab for (None = the connection's scratch tab); ``reuse=False``
+        forces a new tab (the Ctrl+N path)."""
+        tabbed = self.query_one(TabbedContent)
+        if reuse and self._focus_existing_pane(
+            SqlEditorPane, lambda p: p.conn_name == conn_name and p.target == target
+        ):
+            return
         tab_id = self._next_tab_id()
         initial_sql = sql or default_select(self.connections[conn_name])
-        pane = SqlEditorPane(conn_name, self.sessions, initial_sql, self.profile, id=f"pane-{tab_id}")
-        tabbed.add_pane(TabPane(f"{conn_name}: sql", pane, id=tab_id))
+        pane = SqlEditorPane(
+            conn_name, self.sessions, initial_sql, self.profile, target=target, id=f"pane-{tab_id}"
+        )
+        tabbed.add_pane(TabPane(f"{conn_name}: {label or 'sql'}", pane, id=tab_id))
         tabbed.active = tab_id
 
-    def open_operation_tab(self, conn_name: str, op_name: str) -> None:
+    def open_operation_tab(self, conn_name: str, op_name: str, *, reuse: bool = True) -> None:
+        """Open (or focus, when one for the same connection + operation is
+        already open) an operation-launcher tab."""
         tabbed = self.query_one(TabbedContent)
+        if reuse and self._focus_existing_pane(
+            OperationPane, lambda p: p.conn_name == conn_name and p.op_name == op_name
+        ):
+            return
         tab_id = self._next_tab_id()
         op = self.operations[op_name]
         pane = OperationPane(conn_name, op_name, op, self.sessions, self.profile, id=f"pane-{tab_id}")
@@ -166,10 +204,11 @@ class DbctlApp(App[None]):
             if result is None:
                 return
             kind, conn_name, op_name = result
+            # Ctrl+N always means a NEW tab, even if an identical one is open
             if kind == "sql":
-                self.open_sql_tab(conn_name)
+                self.open_sql_tab(conn_name, reuse=False)
             elif op_name is not None:
-                self.open_operation_tab(conn_name, op_name)
+                self.open_operation_tab(conn_name, op_name, reuse=False)
 
         singles = {n: o for n, o in self.operations.items() if o.scope.value == "single"}
         self.push_screen(NewTabScreen(list(self.connections), singles), handle)

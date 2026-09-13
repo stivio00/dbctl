@@ -152,6 +152,52 @@ def pick_connection(
 # --------------------------------------------------------------------------- #
 # heuristic: operation scoring
 # --------------------------------------------------------------------------- #
+# Mutation verbs. A question containing none of these is read-intent and
+# must never route to a write operation, no matter how well a noun like
+# "credits" overlaps the op's name ("top 2 users by credits" used to
+# route to `increase-credits` with garbage params). `--op` overrides the
+# heuristic when it guesses wrong.
+_WRITE_HINTS = frozenset(
+    {
+        "add",
+        "bump",
+        "change",
+        "create",
+        "decrease",
+        "delete",
+        "disable",
+        "drop",
+        "give",
+        "grant",
+        "increase",
+        "insert",
+        "make",
+        "modify",
+        "reactivate",
+        "remove",
+        "rename",
+        "reset",
+        "revoke",
+        "set",
+        "toggle",
+        "update",
+        "upsert",
+    }
+)
+
+
+def _is_write_op(op: Operation) -> bool:
+    """Upserts always write; execute/script ops write when they opt into
+    ``confirm`` (the declarative 'this mutates' signal). Fetch ops never."""
+    match op.mode.value:
+        case "upsert":
+            return True
+        case "execute" | "script":
+            return op.confirm
+        case _:
+            return False
+
+
 def _op_score(question: str, name: str, op: Operation) -> float:
     qtoks = _tokens(question)
     name_tokens = _tokens(name.replace("-", " "))
@@ -160,6 +206,8 @@ def _op_score(question: str, name: str, op: Operation) -> float:
     for p in op.parameters:
         param_tokens |= _tokens(p.name)
         param_tokens |= _tokens(p.description or "")
+    if _is_write_op(op) and not (qtoks & _WRITE_HINTS):
+        return 0.0
     score = 3.0 * len(name_tokens & qtoks)
     score += 1.0 * len(desc_tokens & qtoks)
     score += 2.0 * len(param_tokens & qtoks)

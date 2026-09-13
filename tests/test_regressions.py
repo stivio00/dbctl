@@ -1146,3 +1146,177 @@ def test_connection_individual_mode_build_engine_injects_tunnel_bind():
         assert url.port == 12345
         assert url.database == "app"
         assert url.username == "u"
+
+
+# --------------------------------------------------------------------------- #
+# `dbctl doctor` used to crash wholesale on any connection whose SQLAlchemy
+# dialect plugin can't load (NoSuchModuleError from create_engine — e.g. the
+# reference duckdb template before duckdb-engine shipped, or any unknown
+# `driver:` suffix). One bad connection must only produce an ERR row.
+# --------------------------------------------------------------------------- #
+def test_doctor_bad_driver_is_an_err_row_not_a_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / ".dbctl"
+    cfg.mkdir()
+    (cfg / "connections.yaml").write_text(
+        """
+connections:
+  broken:
+    description: "unknown dialect plugin"
+    type: direct
+    driver: postgresql+nosuchdriver
+    database: app
+    username: u
+    password: p
+    direct: { host: 127.0.0.1, port: 5432 }
+    healthcheck: { query: "SELECT 1" }
+""",
+        encoding="utf-8",
+    )
+    from dbctl.cli import main
+
+    res = CliRunner().invoke(main, ["doctor"])
+    assert res.exit_code == 0, res.output
+    assert res.exception is None
+    assert "broken" in res.output
+    assert "ERR" in res.output
+
+
+# --------------------------------------------------------------------------- #
+# Oracle connections could never connect: `_connect_args` passed
+# `connect_timeout`, but python-oracledb (thin and thick) only accepts
+# `tcp_connect_timeout` — every connect raised TypeError (found running
+# `dbctl doctor` against the reference oracle template).
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("driver", "expected_key"),
+    [
+        ("postgresql+psycopg", "connect_timeout"),
+        ("mysql+pymysql", "connect_timeout"),
+        ("mariadb+pymysql", "connect_timeout"),
+        ("oracle+oracledb", "tcp_connect_timeout"),
+    ],
+)
+def test_connect_args_use_each_drivers_timeout_kwarg(driver, expected_key):
+    from dbctl.config import Connection
+    from dbctl.db import _connect_args
+
+    conn = Connection.model_validate(
+        {
+            "type": "direct",
+            "driver": driver,
+            "database": "app",
+            "username": "u",
+            "password": "p",
+            "direct": {"host": "ignored", "port": 1521},
+            "healthcheck": {"query": "SELECT 1", "timeout_seconds": 5},
+            "safety": {"confirm": False, "read_only": False},
+        }
+    )
+    args = _connect_args(conn, conn.healthcheck.timeout_seconds)
+    assert args == {expected_key: 5}
+
+
+# --------------------------------------------------------------------------- #
+# `dbctl --profile <dir> <conn> <op>` failed with "No such command '<conn>'":
+# click resolves subcommands BEFORE the root group callback populates
+# ctx.obj, so registries() ignored --profile and read the default ~/.dbctl.
+# The profile must be resolved from parsed ctx.params (available pre-callback).
+# --------------------------------------------------------------------------- #
+def test_profile_flag_resolves_dynamic_conn_commands(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))  # default dir: empty, on purpose
+    cfg = tmp_path / "elsewhere" / "custom"  # only reachable via --profile
+    cfg.mkdir(parents=True)
+    (cfg / "connections.yaml").write_text(
+        """
+connections:
+  s1:
+    description: "profile-only connection"
+    type: direct
+    driver: sqlite
+    database: ":memory:"
+    direct: { host: localhost, port: 1234 }
+    healthcheck: { query: "SELECT 1" }
+""",
+        encoding="utf-8",
+    )
+    from dbctl.cli import main
+
+    # dynamic connection command resolves from the --profile dir…
+    res = CliRunner().invoke(main, ["--profile", str(cfg), "s1", "health"])
+    assert res.exit_code == 0, res.output
+    assert "OK" in res.output
+
+    # …and so does the dynamic entry in the root --help listing
+    res_help = CliRunner().invoke(main, ["--profile", str(cfg), "--help"])
+    assert res_help.exit_code == 0, res_help.output
+    assert "s1" in res_help.output
+
+
+# --------------------------------------------------------------------------- #
+# fine-grained doctor: --only db / --only deps / --conn NAME
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def doctor_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / ".dbctl"
+    cfg.mkdir()
+    (cfg / "connections.yaml").write_text(
+        """
+connections:
+  a:
+    description: "first"
+    type: direct
+    driver: sqlite
+    database: ":memory:"
+    direct: { host: localhost, port: 1 }
+    healthcheck: { query: "SELECT 1" }
+  b:
+    description: "second"
+    type: direct
+    driver: sqlite
+    database: ":memory:"
+    direct: { host: localhost, port: 2 }
+    healthcheck: { query: "SELECT 1" }
+""",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_doctor_only_db_skips_deps_section(doctor_home):
+    from dbctl.cli import main
+
+    res = CliRunner().invoke(main, ["doctor", "--only", "db"])
+    assert res.exit_code == 0, res.output
+    assert "doctor" in res.output  # connection table title
+    assert "optional dependencies" not in res.output
+
+
+def test_doctor_only_deps_skips_db_section(doctor_home):
+    from dbctl.cli import main
+
+    res = CliRunner().invoke(main, ["doctor", "--only", "deps"])
+    assert res.exit_code == 0, res.output
+    assert "optional dependencies" in res.output
+    assert "│ a " not in res.output  # no connection rows rendered
+
+
+def test_doctor_conn_filter_checks_one_connection(doctor_home):
+    from dbctl.cli import main
+
+    res = CliRunner().invoke(main, ["doctor", "--conn", "a"])
+    assert res.exit_code == 0, res.output
+    assert "│ a " in res.output
+    assert "│ b " not in res.output  # b filtered out
+    assert "optional dependencies" not in res.output  # implied --only db
+
+
+def test_doctor_conn_filter_unknown_name_exits_2(doctor_home):
+    from dbctl.cli import main
+
+    res = CliRunner().invoke(main, ["doctor", "--conn", "nope"])
+    assert res.exit_code == 2
+    assert "nope" in res.output

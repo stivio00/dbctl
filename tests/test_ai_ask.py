@@ -60,13 +60,26 @@ def _ops() -> dict[str, Operation]:
             {
                 "description": "Create or update an application user",
                 "scope": "single",
-                "mode": "execute",
+                "mode": "upsert",
                 "confirm": True,
                 "parameters": [
                     {"name": "name", "type": "string", "required": True, "position": 1},
                     {"name": "credits", "type": "integer", "required": True, "position": 2},
                 ],
                 "sql": "INSERT INTO users (name, credits) VALUES ($name, $credits)",
+            }
+        ),
+        "increase-credits": Operation.model_validate(
+            {
+                "description": "Increase a user's credits by a percentage",
+                "scope": "single",
+                "mode": "execute",
+                "confirm": True,  # execute + confirm = declared write op
+                "parameters": [
+                    {"name": "name", "type": "string", "required": True, "position": 1},
+                    {"name": "pct", "type": "float", "required": True, "position": 2},
+                ],
+                "sql": "UPDATE users SET credits = credits * (1 + $pct / 100.0) WHERE name = $name",
             }
         ),
         "user-count": Operation.model_validate(
@@ -117,6 +130,31 @@ def test_dml_positional_pair(one_conn):
     plan = plan_from_question("add user zelda with 100 credits on pg", one_conn, _ops())
     assert plan.operation == "add-user"
     assert plan.params == {"name": "zelda", "credits": "100"}
+
+
+def test_read_intent_never_routes_to_upsert_ops(one_conn):
+    # "credits" overlaps add-user's SQL/description nouns, but the question
+    # has no mutation verb — it must route to the read op, not the write op
+    plan = plan_from_question("top 2 users by credits on pg", one_conn, _ops())
+    assert plan.operation == "list-users"
+
+
+def test_read_intent_never_routes_to_execute_confirm_ops(one_conn):
+    # execute + confirm is a declared write op (the sample registry's
+    # increase-credits) — gated; and since no read op matches either, the
+    # router errors out instead of silently running a write
+    with pytest.raises(AskError, match="no operation matches"):
+        plan_from_question("who has the most credits on pg", one_conn, _ops())
+
+
+def test_write_intent_still_routes_to_upsert_ops(one_conn):
+    plan = plan_from_question("upsert user zelda with 100 credits on pg", one_conn, _ops())
+    assert plan.operation == "add-user"
+
+
+def test_write_intent_still_routes_to_execute_confirm_ops(one_conn):
+    plan = plan_from_question("increase credits for zelda by 10 on pg", one_conn, _ops())
+    assert plan.operation == "increase-credits"
 
 
 def test_single_conn_default_without_mention():

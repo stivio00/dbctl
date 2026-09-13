@@ -47,10 +47,15 @@ class SqlEditorPane(RunnableTab):
         sessions: SessionManager,
         initial_sql: str,
         profile: str | None,
+        target: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.conn_name = conn_name
+        # schema-qualified table this tab was opened from (None = a scratch
+        # tab for the whole connection) - the app dedupes tree activations
+        # on (conn_name, target) so clicking a table twice focuses one tab.
+        self.target = target
         self._sessions = sessions
         self._initial_sql = initial_sql
         self._profile = profile

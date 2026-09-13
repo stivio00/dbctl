@@ -5,6 +5,50 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-09-13
+
+### Fixed
+
+- **`--profile` was ignored for dynamic connection commands.** Click
+  resolves subcommands *before* the root group callback populates
+  `ctx.obj`, so `dbctl --profile X <conn> <op>` synthesized its command
+  from the default `~/.dbctl` instead of the profile dir (static
+  commands like `doctor` were unaffected, which hid the bug). The
+  profile is now resolved as early as the raw argv scan
+  (`dbctl/cli.py:DbctlGroup`) plus a params/obj walk
+  (`dbctl/runtime.py:_ctx_profile`), so dynamic commands, `--help`
+  listings, and the dashboard are all profile-aware.
+- **`dbctl doctor` crashed wholesale** on any connection whose
+  SQLAlchemy dialect fails to load (missing dialect plugin, broken
+  native driver lib, URL error) — one such connection took down the
+  entire report. Each connection is now isolated: unusable ones render
+  as `ERR` rows with the reason, the rest of the report survives.
+- **duckdb connections could never connect** — the SQLAlchemy dialect
+  for duckdb ships in the separate `duckdb-engine` package, which
+  `_check_driver_available` didn't know about (it checked for the
+  `duckdb` driver package). `duckdb-engine` is now a dependency.
+- **Oracle connections could never connect** — `_connect_args` passed
+  `connect_timeout`, but python-oracledb (thin and thick mode) only
+  accepts `tcp_connect_timeout`; every connect raised `TypeError`.
+- **`dbctl ask` could route read-intent questions to write
+  operations** — "top 2 users by credits" scored `increase-credits`
+  (noun overlap) and dry-ran an `UPDATE` with garbage params
+  (`percent='users'`). Write ops (`upsert`, or `execute`/`script` with
+  `confirm: true`) now require a mutation verb in the question;
+  `--op` still overrides the heuristic.
+
+### Added
+
+- **Fine-grained doctor**: `--only db` (connection healthchecks only),
+  `--only deps` (optional CLI tool report only, repeatable), and
+  `--conn NAME` to healthcheck a single connection (implies
+  `--only db`). Unknown `--conn` names exit 2 like every other
+  name-resolution path.
+- **TUI tab reuse**: activating a table or operation in the connection
+  tree now focuses the already-open tab for that (connection, target)
+  pair instead of piling up duplicates; `Ctrl+N` always opens a fresh
+  scratch tab.
+
 ## [0.8.0] — 2026-09-13
 
 ### Added

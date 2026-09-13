@@ -74,7 +74,8 @@ async def test_each_tab_keeps_its_own_editor_height(stub_registry):
         app.action_grow_editor()
         await pilot.pause()
 
-        app.open_sql_tab("sqlite-test")
+        # reuse=False: the Ctrl+N path - identical tree-driven tabs dedupe now
+        app.open_sql_tab("sqlite-test", reuse=False)
         await pilot.pause()
         panes = app.query(SqlEditorPane)
         assert panes[0].editor_height == DEFAULT_EDITOR_HEIGHT + 2 * EDITOR_HEIGHT_STEP

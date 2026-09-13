@@ -30,6 +30,27 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _ctx_profile(ctx: click.Context) -> str | None:
+    """Profile for the active invocation, resolved as early as possible.
+
+    Click resolves subcommands (``get_command``/``list_commands``) BEFORE the
+    root group callback runs, so ``ctx.obj["profile"]`` is not populated yet
+    when dynamic connection commands are synthesized. ``ctx.params`` however
+    is already parsed at that point — walk the parent chain, params first,
+    so ``dbctl --profile X pg list-users`` resolves registries from X rather
+    than silently falling back to the default ``~/.dbctl``.
+    """
+    c: click.Context | None = ctx
+    while c is not None:
+        prof = c.params.get("profile")
+        if prof:
+            return str(prof)
+        if c.obj and c.obj.get("profile"):
+            return str(c.obj["profile"])
+        c = c.parent
+    return None
+
+
 def registries(ctx: click.Context) -> tuple[dict, dict]:
     """Returns (conns, ops) for the active profile.
 
@@ -37,7 +58,7 @@ def registries(ctx: click.Context) -> tuple[dict, dict]:
     reported once on stderr with a continuation hint, and treated as empty so
     that `--help` and the dashboard still render instead of crashing mid-parse.
     """
-    prof = ctx.obj.get("profile") if ctx.obj else None
+    prof = _ctx_profile(ctx)
     try:
         conns = load_connections(profile=prof)
     except ConnectionsFileError as e:

@@ -1080,7 +1080,49 @@ def _root_get(ctx: click.Context, name: str):
 # --------------------------------------------------------------------------- #
 # main group
 # --------------------------------------------------------------------------- #
-@click.group(invoke_without_command=True, context_settings={"help_option_names": ["-h", "--help"]})
+def _scan_profile(args: list[str]) -> str | None:
+    """Best-effort ``--profile`` extraction from raw CLI args.
+
+    Click's eager paths (``--help``, shell completion) and subcommand
+    resolution all run BEFORE the root callback populates ``ctx.obj`` — and
+    eager ``--help`` fires before params are committed to ``ctx.params``.
+    A raw scan is the only reliable way to make dynamic command
+    listing/lookup profile-aware in those windows. Stops at ``--``; last
+    occurrence wins (matches click's own last-value-wins parsing).
+    """
+    prof = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            break
+        if a == "--profile" and i + 1 < len(args):
+            prof = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--profile="):
+            prof = a.split("=", 1)[1]
+        i += 1
+    return prof
+
+
+class DbctlGroup(click.Group):
+    """Root group that knows its ``--profile`` before parsing finishes."""
+
+    def make_context(self, info_name: str | None, args: list[str], **extra: Any) -> click.Context:
+        prof = _scan_profile(args)
+        if prof is not None:
+            obj = dict(extra.get("obj") or {})
+            obj.setdefault("profile", prof)
+            extra["obj"] = obj
+        return super().make_context(info_name, args, **extra)
+
+
+@click.group(
+    cls=DbctlGroup,
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 @click.version_option(__version__, prog_name="dbctl")
 @click.option("--profile", default=None, help="Use a profile config dir (~/.dbctl/profiles/<name>).")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output.")
@@ -1255,16 +1297,58 @@ def status_cmd(ctx):
 
 
 @click.command("doctor")
+@click.option(
+    "--only",
+    "sections",
+    type=click.Choice(["db", "deps"]),
+    multiple=True,
+    help=(
+        "Limit the report to one section (repeatable): 'db' = connection"
+        " healthchecks, 'deps' = optional CLI tools. Default: both."
+    ),
+)
+@click.option(
+    "--conn",
+    "conn_filter",
+    metavar="NAME",
+    default=None,
+    help="Healthcheck only this connection (implies --only db unless --only is given).",
+)
 @click.pass_context
-def doctor_cmd(ctx):
+def doctor_cmd(ctx, sections, conn_filter):
     """Healthcheck all connections and report optional CLI dependencies."""
     conns, _ = registries(ctx)
+
+    selected = set(sections) or {"db", "deps"}
+    if conn_filter and not sections:
+        selected = {"db"}
+
+    if "db" in selected:
+        targets = conns
+        if conn_filter:
+            from dbctl.connections import resolve
+
+            try:
+                canonical, _ = resolve(conn_filter, conns)
+            except KeyError as e:
+                err_console.print(f"[red]{e}[/red]")
+                raise SystemExit(2)
+            targets = {canonical: conns[canonical]}
+        _doctor_db(targets)
+
+    if "deps" in selected:
+        # deps "required by config" reflects the FULL registry, unfiltered
+        _doctor_deps(ctx, conns)
+
+
+def _doctor_db(conns) -> None:
+    """Healthcheck table: one row per connection (OK/FAIL/ERR)."""
     table = Table(title="doctor", header_style="bold cyan")
     table.add_column("connection")
     table.add_column("status")
     table.add_column("latency")
     table.add_column("note")
-    from dbctl.db import DBError, build_engine
+    from dbctl.db import build_engine
     from dbctl.db import healthcheck as hc
     from dbctl.tunnels.base import build_tunnel
 
@@ -1284,11 +1368,11 @@ def doctor_cmd(ctx):
                 )
             finally:
                 tun.__exit__(None, None, None)
-        except (RuntimeError, DBError) as e:
+        except Exception as e:  # noqa: BLE001 - one bad connection must not
+            # crash the whole report (missing dialect plugin, broken native
+            # driver lib, URL error, ... all surface as an ERR row instead)
             table.add_row(n, "[red]ERR[/red]", "-", str(e)[:80])
     console.print(table)
-
-    _doctor_deps(ctx, conns)
 
 
 def _doctor_deps(ctx, conns) -> None:

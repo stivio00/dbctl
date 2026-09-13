@@ -124,3 +124,28 @@ async def test_operation_tab_survives_connection_removed_from_registry(stub_regi
         row = list(table.rows.keys())[0]
         cell = table.get_cell(row, next(iter(table.columns.keys())))
         assert "no longer exists" in cell
+
+
+async def test_same_operation_tab_is_reused_not_duplicated(stub_registry, add_user_op):
+    """Launching the same (connection, operation) again focuses the open
+    tab; Ctrl+N (reuse=False) is the explicit way to get a second one."""
+    from textual.widgets import TabbedContent, TabPane
+
+    app = DbctlApp()
+    app.operations["add-user"] = add_user_op
+    async with app.run_test() as pilot:
+        app.open_operation_tab("sqlite-test", "add-user")
+        await pilot.pause()
+        tabbed = app.query_one(TabbedContent)
+        assert len(tabbed.query(TabPane)) == 1
+        first = tabbed.active
+
+        app.open_operation_tab("sqlite-test", "add-user")
+        await pilot.pause()
+        assert len(tabbed.query(TabPane)) == 1
+        assert tabbed.active == first
+
+        app.open_operation_tab("sqlite-test", "add-user", reuse=False)
+        await pilot.pause()
+        assert len(tabbed.query(TabPane)) == 2
+        assert len(app.query(OperationPane)) == 2
