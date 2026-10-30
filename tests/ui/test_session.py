@@ -9,6 +9,7 @@ network I/O (`DirectTunnel` is a passthrough), so these run everywhere.
 from __future__ import annotations
 
 from dbctl.config import Connection
+from dbctl.refs import RefResolutionError
 from dbctl.ui.session import SessionManager
 
 
@@ -72,3 +73,26 @@ def test_get_or_none_for_a_removed_connection(sqlite_connection):
     manager.reload({})
     assert manager.get_or_none("sqlite-test") is None
     assert manager.get_or_none("sqlite-test") is None  # idempotent, no KeyError
+
+
+def _raise_ref_error(*_a, **_k):
+    raise RefResolutionError("failed to resolve ssm parameter '/missing/credentials': ParameterNotFound")
+
+
+def test_connect_reports_unresolvable_ssm_ref_as_config_error(sqlite_connection, monkeypatch):
+    monkeypatch.setattr("dbctl.ui.session.build_tunnel", _raise_ref_error)
+    manager = SessionManager({"sqlite-test": sqlite_connection})
+
+    session = manager.connect("sqlite-test")
+    assert not session.connected
+    assert session.error and "connections.yaml needs a correction" in session.error
+    assert "/missing/credentials" in session.error
+
+
+def test_test_tunnel_reports_unresolvable_ssm_ref_as_config_error(sqlite_connection, monkeypatch):
+    monkeypatch.setattr("dbctl.ui.session.build_tunnel", _raise_ref_error)
+    manager = SessionManager({"sqlite-test": sqlite_connection})
+
+    ok, msg = manager.test_tunnel("sqlite-test")
+    assert not ok
+    assert "connections.yaml needs a correction" in msg

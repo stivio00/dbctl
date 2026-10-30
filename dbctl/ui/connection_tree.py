@@ -269,6 +269,8 @@ class ConnectionTree(Tree[NodeData]):
                 f"[red]{error or 'not connected'}[/red]",
                 data=NodeData(kind="error", conn_name=data.conn_name),
             )
+            if error:
+                self.app.notify(f"{data.conn_name}: {error}", severity="error", timeout=10)
             return
         if self.view_mode == "simple":
             self._add_table_nodes(node, data.conn_name, schema=None, engine=session.engine)
@@ -441,7 +443,15 @@ class ConnectionTree(Tree[NodeData]):
 
     @work(thread=True)
     def _connect_worker(self, name: str) -> None:
-        self._sessions.connect(name)
+        # An exception escaping a Textual worker exits the app; anything
+        # SessionManager.connect didn't anticipate becomes the session's
+        # error (shown in the tree + a toast) instead.
+        try:
+            self._sessions.connect(name)
+        except Exception as e:  # noqa: BLE001 - surfaced via notify, not a crash
+            session = self._sessions.get_or_none(name)
+            if session is not None:
+                session.error = f"unexpected error: {e}"
         self.app.call_from_thread(self._connect_worker_done, name)
 
     def _connect_worker_done(self, name: str) -> None:
@@ -505,7 +515,10 @@ class ConnectionTree(Tree[NodeData]):
 
     @work(thread=True)
     def _test_tunnel_worker(self, name: str) -> None:
-        ok, msg = self._sessions.test_tunnel(name)
+        try:
+            ok, msg = self._sessions.test_tunnel(name)
+        except Exception as e:  # noqa: BLE001 - surfaced via notify, not a crash
+            ok, msg = False, f"unexpected error: {e}"
         self.app.call_from_thread(self._test_tunnel_worker_done, name, ok, msg)
 
     def _test_tunnel_worker_done(self, name: str, ok: bool, msg: str) -> None:

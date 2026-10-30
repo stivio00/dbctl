@@ -5,6 +5,27 @@ All notable changes to this project will be documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Install on free-threaded Python 3.14 (`3.14t`)**: `requires-python` is
+  now `>=3.12,<3.14`. `psycopg-binary` (and other driver deps) ship no
+  free-threaded wheels, so resolution failed outright when uv's default
+  interpreter was `3.14t`; with the cap, `uv tool install dbctl` picks a
+  compatible 3.12/3.13 interpreter automatically.
+- **TUI no longer crashes on an unresolvable `{{ssm:...}}` reference** (e.g.
+  `ParameterNotFound`). Connect / test-tunnel now report it as a
+  per-connection error ("connections.yaml needs a correction - ...") in the
+  tree and as an error toast. Connect and test-tunnel workers also catch any
+  unexpected exception instead of letting it exit the app.
+- **CLI**: the same error from `dbctl <conn> ...`, `tunnel open` and
+  `tunnel test` is a clean `tunnel error` (exit 3) instead of a traceback.
+- **Tests on Windows**: fixtures that isolate `~/.dbctl` via `HOME` now also
+  set `USERPROFILE` (what `Path.home()` reads on Windows), so the suite no
+  longer reads the developer's real config; the sqlite path written into the
+  fixture YAML uses forward slashes so it parses on Windows.
+
 ## [0.8.2] — 2026-09-13
 
 ### Changed

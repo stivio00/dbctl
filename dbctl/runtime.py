@@ -118,8 +118,10 @@ def opened_conn(ctx: click.Context, name: str) -> Iterator[tuple[str, Connection
         err_console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
 
-    tun = build_tunnel(conn)
     try:
+        # inside the try: build_tunnel resolves {{ssm:...}} refs, and a
+        # RefResolutionError (a RuntimeError) is a clean exit 3, not a traceback.
+        tun = build_tunnel(conn)
         tun.__enter__()
     except RuntimeError as e:
         err_console.print(f"[red]tunnel error:[/red] {e}")
@@ -153,8 +155,10 @@ def opened_engine(ctx: click.Context, canonical: str, conn: Connection) -> Itera
     from dbctl.db import DBError, build_engine
     from dbctl.tunnels.base import build_tunnel
 
-    tun = build_tunnel(conn)
     try:
+        # inside the try: build_tunnel resolves {{ssm:...}} refs, and a
+        # RefResolutionError (a RuntimeError) is a clean exit 3, not a traceback.
+        tun = build_tunnel(conn)
         tun.__enter__()
     except RuntimeError as e:
         err_console.print(f"[red]tunnel error:[/red] {e}")
