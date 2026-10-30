@@ -7,7 +7,7 @@ name = "dbctl"
 version = "0.8.2"
 description = "Generic CLI to monitor, control, and administer multiple databases via SSM, SSH, or direct connection."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }
 authors = [{ name = "dbctl contributors" }]
 keywords = ["cli", "database", "postgres", "mysql", "mssql", "oracle", "sqlite", "duckdb", "ssm", "ssh", "tunnel"]

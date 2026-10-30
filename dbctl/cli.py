@@ -1988,8 +1988,8 @@ def tunnel_open(ctx, name, port):
         raise SystemExit(2)
     from dbctl.tunnels.base import build_tunnel
 
-    tun = build_tunnel(c, override_port=port)
     try:
+        tun = build_tunnel(c, override_port=port)
         tun.__enter__()
     except RuntimeError as e:
         err_console.print(f"[red]tunnel error:[/red] {e}")
@@ -2021,9 +2021,9 @@ def tunnel_test(ctx, name):
         err_console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
 
-    tun = build_tunnel(c)
     started = time.monotonic()
     try:
+        tun = build_tunnel(c)
         tun.__enter__()
     except RuntimeError as e:
         elapsed = (time.monotonic() - started) * 1000

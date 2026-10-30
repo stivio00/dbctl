@@ -138,3 +138,21 @@ async def test_connect_disconnect_work_from_a_nested_cursor_position(stub_regist
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert not app.sessions.get("sqlite-test").connected
+
+
+async def test_unexpected_connect_error_is_reported_not_fatal(stub_registry, monkeypatch):
+    def boom(_name):
+        raise ValueError("kaboom")
+
+    app = DbctlApp()
+    async with app.run_test() as pilot:
+        monkeypatch.setattr(app.sessions, "connect", boom)
+        tree = app.query_one(ConnectionTree)
+        node = tree._conn_nodes["sqlite-test"]
+        node.expand()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.is_running
+        assert app.sessions.get("sqlite-test").error == "unexpected error: kaboom"
+        assert any("kaboom" in str(c.label) for c in node.children)

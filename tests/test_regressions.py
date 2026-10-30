@@ -1156,6 +1156,7 @@ def test_connection_individual_mode_build_engine_injects_tunnel_bind():
 # --------------------------------------------------------------------------- #
 def test_doctor_bad_driver_is_an_err_row_not_a_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     cfg = tmp_path / ".dbctl"
     cfg.mkdir()
     (cfg / "connections.yaml").write_text(
@@ -1227,6 +1228,7 @@ def test_profile_flag_resolves_dynamic_conn_commands(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))  # default dir: empty, on purpose
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() on Windows
     cfg = tmp_path / "elsewhere" / "custom"  # only reachable via --profile
     cfg.mkdir(parents=True)
     (cfg / "connections.yaml").write_text(
@@ -1261,6 +1263,7 @@ connections:
 @pytest.fixture
 def doctor_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     cfg = tmp_path / ".dbctl"
     cfg.mkdir()
     (cfg / "connections.yaml").write_text(
@@ -1320,3 +1323,20 @@ def test_doctor_conn_filter_unknown_name_exits_2(doctor_home):
     res = CliRunner().invoke(main, ["doctor", "--conn", "nope"])
     assert res.exit_code == 2
     assert "nope" in res.output
+
+
+# --------------------------------------------------------------------------- #
+# an unresolvable {{ssm:...}} ref is a clean "tunnel error" exit, not a traceback
+# --------------------------------------------------------------------------- #
+def test_unresolvable_ssm_ref_exits_cleanly(ai_home, monkeypatch):
+    from dbctl.cli import main
+    from dbctl.refs import RefResolutionError
+
+    def _raise(*_a, **_k):
+        raise RefResolutionError("failed to resolve ssm parameter '/missing/credentials': ParameterNotFound")
+
+    monkeypatch.setattr("dbctl.tunnels.base.build_tunnel", _raise)
+    res = CliRunner().invoke(main, ["pg", "health"])
+    assert res.exit_code == 3, res.output
+    assert "/missing/credentials" in res.output
+    assert not isinstance(res.exception, RefResolutionError)

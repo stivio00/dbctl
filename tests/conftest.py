@@ -97,6 +97,7 @@ def ai_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated HOME with ~/.dbctl/{connections,operations}.yaml pointing
     at a seeded sqlite database; `pg` (writable) + `pg-ro` (read-only)."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     db = tmp_path / "app.db"
     con = sqlite3.connect(db)
     con.executescript(_SCHEMA)
@@ -104,7 +105,7 @@ def ai_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     con.close()
     cfg = tmp_path / ".dbctl"
     cfg.mkdir()
-    (cfg / "connections.yaml").write_text(CONNECTIONS_YAML.format(db=db), encoding="utf-8")
+    (cfg / "connections.yaml").write_text(CONNECTIONS_YAML.format(db=db.as_posix()), encoding="utf-8")
     (cfg / "operations.yaml").write_text(OPERATIONS_YAML, encoding="utf-8")
     return tmp_path
 

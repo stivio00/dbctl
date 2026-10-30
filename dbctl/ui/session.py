@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from dbctl.db import DBError, build_engine, healthcheck
+from dbctl.refs import RefResolutionError
 from dbctl.tunnels.base import build_tunnel
 
 if TYPE_CHECKING:
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
 
     from dbctl.config import Connection
     from dbctl.tunnels.base import Tunnel
+
+
+def _config_error(e: RefResolutionError) -> str:
+    return f"connections.yaml needs a correction - {e}"
 
 
 @dataclass
@@ -63,7 +68,14 @@ class SessionManager:
         if session.connected:
             return session
         session.error = None
-        tun = build_tunnel(session.conn)
+        # build_tunnel resolves `{{ssm:...}}` refs - a wrong parameter path
+        # in connections.yaml must surface as a per-connection error, not
+        # escape the worker thread and take the whole app down.
+        try:
+            tun = build_tunnel(session.conn)
+        except RefResolutionError as e:
+            session.error = _config_error(e)
+            return session
         try:
             tun.__enter__()
         except RuntimeError as e:
@@ -112,7 +124,10 @@ class SessionManager:
         """Open + healthcheck + close without touching a live session
         (mirrors ``dbctl tunnel test``)."""
         conn = self.connections[name]
-        tun = build_tunnel(conn)
+        try:
+            tun = build_tunnel(conn)
+        except RefResolutionError as e:
+            return False, _config_error(e)
         try:
             tun.__enter__()
         except RuntimeError as e:
